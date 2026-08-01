@@ -22,11 +22,29 @@ function wantsHtml(request) {
 
 async function proxyApi(request) {
   const incomingUrl = new URL(request.url)
-  const targetUrl = new URL(incomingUrl.pathname.replace(/^\\/api/, '') || '/', BACKEND_ORIGIN)
+  const targetUrl = new URL(incomingUrl.pathname, BACKEND_ORIGIN)
   targetUrl.search = incomingUrl.search
 
   const headers = new Headers(request.headers)
-  headers.set('host', targetUrl.host)
+  for (const header of [
+    'host',
+    'origin',
+    'referer',
+    'cookie',
+    'cf-connecting-ip',
+    'cf-ipcountry',
+    'cf-ray',
+    'cf-visitor',
+    'oai-authenticated-user-email',
+    'oai-authenticated-user-full-name',
+    'oai-authenticated-user-full-name-encoding',
+    'oai-authenticated-user-id',
+    'x-dispatched-app',
+    'x-forwarded-proto',
+    'x-real-ip',
+  ]) {
+    headers.delete(header)
+  }
 
   return fetch(targetUrl, {
     method: request.method,
