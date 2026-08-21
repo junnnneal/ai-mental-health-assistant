@@ -12,10 +12,11 @@
   to = "/.netlify/functions/llm/:splat"
   status = 200
 
-# 课程后端直代理：登录、文章、会话等业务接口（与vite /api 代理同规则）
+# 课程后端直代理：登录、文章、会话等业务接口
+# 注意保留/api前缀：vite代理无rewrite（路径原样转发），后端路由本身就挂在/api/*下
 [[redirects]]
   from = "/api/*"
-  to = "http://159.75.169.224:1235/:splat"
+  to = "http://159.75.169.224:1235/api/:splat"
   status = 200
 
 # SPA回退必须放最后：以上路由都匹配不到才回落到index.html
