@@ -2,29 +2,14 @@
 LangGraph Agent：create_react_agent 搭一个 ReAct 循环。
 LLM 自主决定调哪个工具、调几轮，直到收集够信息再输出最终回答。
 """
-import os
-
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
+from llm import agent_llm
 from tools import (
     search_knowledge,
     get_emotion_analysis,
     get_recent_sessions,
     save_emotion_diary,
-)
-
-load_dotenv()
-
-# GLM 走 OpenAI 兼容协议：换个 base_url 就能用官方 SDK
-llm = ChatOpenAI(
-    # 固定版本号：别名glm-4-flash排队抖动大（TTFT 0.4~1.8s），固定版稳定在200ms级
-    model="glm-4-flash-250414",
-    base_url="https://open.bigmodel.cn/api/paas/v4",
-    api_key=os.getenv("GLM_API_KEY", ""),
-    temperature=0.7,
-    streaming=True,  # 必须开，否则 astream_events 拿不到 token 级事件
 )
 
 AGENT_TOOLS = [search_knowledge, get_emotion_analysis, get_recent_sessions, save_emotion_diary]
@@ -47,7 +32,7 @@ SYSTEM_PROMPT = """你是「AI健康管家」，一个温暖专业的心理健�
 - 你是陪伴助手不是医生，不提供医学诊断和用药建议。"""
 
 agent = create_react_agent(
-    llm,
+    agent_llm,
     AGENT_TOOLS,
     prompt=SYSTEM_PROMPT,
 )

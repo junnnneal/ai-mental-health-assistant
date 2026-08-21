@@ -45,5 +45,7 @@ __screenshots__/
 agent-server/.venv/
 agent-server/.env
 agent-server/__pycache__/
+# Chroma 向量库落盘目录（运行时生成，可随时由种子数据重建）
+agent-server/chroma_data/
 **/__pycache__/
 *.pyc

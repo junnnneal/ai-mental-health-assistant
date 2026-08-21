@@ -3,24 +3,21 @@ Agent工具层：把知识库RAG检索 + 后端心理数据接口包装成LLM可
 
 后端接口需要用户token：前端请求头携带 → FastAPI层写入ContextVar → 这里读取透传，
 每个请求的Agent工具都以此用户身份调用后端，天然隔离多用户。
+
+RAG部分已拆到独立模块（对应架构图）：
+  config.py（配置）/ knowledge_base.py（入库）/ vector_store.py（Chroma向量库）/
+  rag.py（向量化+检索）——本文件只保留工具封装。
 """
-import os
-import re
 import json
-import math
 from contextvars import ContextVar
 from datetime import date
 
 import httpx
-from dotenv import load_dotenv
 from langchain_core.tools import tool
 
-load_dotenv()
-
-BACKEND_BASE = os.getenv("BACKEND_BASE", "http://159.75.169.224:1235/api")
-GLM_API_KEY = os.getenv("GLM_API_KEY", "")
-EMBED_URL = "https://open.bigmodel.cn/api/paas/v4/embeddings"
-EMBED_MODEL = "embedding-2"
+import knowledge_base
+import rag
+from config import BACKEND_BASE
 
 # 当前请求的用户token（FastAPI请求处理器写入）
 user_token: ContextVar[str] = ContextVar("user_token", default="")
@@ -45,118 +42,27 @@ def _reply(payload: dict) -> str:
 
 # ---------------- 工具一：知识库RAG检索 ----------------
 
-# 进程内向量缓存：[{title, heading, text, embed_text, embedding}]，首次调用时构建
-_knowledge_base: list[dict] = []
-
-
-async def _embed_texts(texts: list[str], client: httpx.AsyncClient) -> list[list[float]]:
-    """调用智谱embedding接口批量向量化（10条/批，按index还原顺序）"""
-    vectors: list[list[float]] = []
-    for i in range(0, len(texts), 10):
-        batch = texts[i : i + 10]
-        r = await client.post(
-            EMBED_URL,
-            headers={"Authorization": f"Bearer {GLM_API_KEY}"},
-            json={"model": EMBED_MODEL, "input": batch},
-        )
-        data = _json(r).get("data") or []
-        ordered = [None] * len(batch)
-        for item in data:
-            ordered[item["index"]] = item["embedding"]
-        vectors.extend(ordered)
-    return vectors
-
-
-async def _build_knowledge_base() -> int:
-    """拉全量知识文章 → 按<h3>小节分块 → 批量向量化，进程内缓存"""
-    global _knowledge_base
-    async with httpx.AsyncClient(timeout=30) as client:
-        articles = []
-        page = 1
-        while True:
-            r = await client.get(
-                f"{BACKEND_BASE}/knowledge/article/page",
-                params={
-                    "currentPage": page,
-                    "size": 50,
-                    "sortField": "readCount",
-                    "sortDirection": "desc",
-                },
-                headers=_headers(),
-            )
-            data = _json(r).get("data") or {}
-            records = data.get("records") or []
-            articles.extend(records)
-            if not records or page * 50 >= (data.get("total") or 0):
-                break
-            page += 1
-
-        chunks = []
-        for a in articles:
-            detail = _json(
-                await client.get(
-                    f"{BACKEND_BASE}/knowledge/article/{a['id']}",
-                    headers=_headers(),
-                )
-            ).get("data") or {}
-            html = str(detail.get("content") or "")
-            category = a.get("categoryName") or ""
-            title = a.get("title") or ""
-            # 与前端chunker同款逻辑：<h3>是天然的语义分块边界
-            for sec in filter(None, (s.strip() for s in re.split(r"(?=<h3>)", html))):
-                m = re.search(r"<h3>(.*?)</h3>", sec)
-                heading = m.group(1) if m else title
-                text = re.sub(r"<[^>]+>", "", sec).strip()
-                if len(text) < 20:
-                    continue
-                chunks.append(
-                    {
-                        "title": title,
-                        "heading": heading,
-                        "text": text,
-                        # 向量化文本带"分类+标题+小节"上下文前缀，提升检索命中率
-                        "embed_text": f"【{category}】{title} - {heading}\n{text}",
-                    }
-                )
-
-        vectors = await _embed_texts([c["embed_text"] for c in chunks], client)
-        for chunk, vec in zip(chunks, vectors):
-            if vec:
-                chunk["embedding"] = vec
-        _knowledge_base = [c for c in chunks if "embedding" in c]
-        print(f"[RAG] 知识库构建完成：{len(articles)}篇文章 → {len(_knowledge_base)}个知识块")
-        return len(_knowledge_base)
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    return dot / (na * nb or 1)
-
-
 @tool
 async def search_knowledge(query: str, top_k: int = 3) -> str:
     """在心理健康知识库中检索与问题最相关的文章小节。适用于需要专业知识支撑的场景：情绪困扰、睡眠问题、压力应对、人际沟通、心理科普等。返回文章标题、小节标题、内容摘要和相似度得分。"""
-    if not _knowledge_base:
-        if await _build_knowledge_base() == 0:
-            return _reply({"error": "知识库构建失败或为空，请直接凭常识回答"})
-    async with httpx.AsyncClient(timeout=30) as client:
-        qv = (await _embed_texts([query], client))[0]
-    ranked = sorted(
-        ((_cosine(qv, c["embedding"]), c) for c in _knowledge_base),
-        key=lambda x: x[0],
-        reverse=True,
-    )[:top_k]
+    # 知识库未就绪先补建（通常启动时后台已灌完，这里兜底）
+    try:
+        await knowledge_base.ensure_built()
+    except Exception as e:  # noqa: BLE001 —— 知识库挂了不该拖垮Agent，让LLM凭常识答
+        return _reply({"error": f"知识库暂不可用：{e}，请直接凭常识回答"})
+    results = await rag.retrieve(query, top_k)
+    if not results:
+        return _reply({"info": "知识库中没有检索到相关内容，请直接凭常识回答"})
+    # 返回结构与拆分前完全一致，Agent的解析行为零变化
     return _reply(
         [
             {
-                "title": c["title"],
+                "title": c["articleTitle"],
                 "heading": c["heading"],
                 "summary": c["text"][:200],
-                "score": round(s, 4),
+                "score": c["score"],
             }
-            for s, c in ranked
+            for c in results
         ]
     )
 
