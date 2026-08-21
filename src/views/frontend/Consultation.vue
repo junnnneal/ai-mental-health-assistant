@@ -16,8 +16,7 @@ import {
   Refresh,
 } from "@element-plus/icons-vue";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
-import { chatCompletionStream } from "@/apis/llm";
-import { useRag } from "@/composables/useRag";
+import { ragChatStream } from "@/apis/agent";
 import { analyzeEmotion } from "@/composables/useEmotionAnalysis";
 import {
   getLocalMessages,
@@ -27,7 +26,6 @@ import {
   saveLocalMessage,
 } from "@/utils/localChatHistory";
 import type { ChatMessage, EmotionGarden, SessionHistoryItem } from "@/types";
-import type { RetrievedChunk } from "@/rag/types";
 
 const iconUrl1 = new URL("@/assets/images/robot-fill.png", import.meta.url)
   .href;
@@ -70,12 +68,8 @@ const userInput = ref("");
 
 const isAiTyping = ref(false);
 
-//RAG知识库检索（失败自动降级为无引用模式，对话不受影响）
-//检索预算：超时直接放弃引用。预算必须盖住整条链路——列表指纹~50ms + IndexedDB全量读
-//+ query向量化200~300ms（智谱抖动可到1s+）。原500ms卡在耗时线上，race经常判超时
-//把检索结果静默丢掉，表现为"AI像没用RAG"；1500ms基本必达，仍兜底防无限拖首字
-const RAG_BUDGET_MS = 1500;
-const { search: ragSearch, warmup: ragWarmup } = useRag();
+//RAG已整体迁到服务端（agent-server）：检索、引用、prompt组装都在 /agent/rag/chat
+//一跳完成，浏览器端不再建库/不再直连LLM（原 useRag + 检索预算降级逻辑随之移除）
 
 const isUserMessage = (msg: ChatMessage) => Number(msg.senderType) === 1;
 
@@ -370,12 +364,8 @@ const stopTypewriter = () => {
   }
 };
 
-//智谱GLM降级通道的System Prompt：与后端AI助手保持一致的心理陪伴人设
-const GLM_SYSTEM_PROMPT = [
-  "你是Junnnneal AI助手，一位温暖、专业的心理健康陪伴助手。",
-  "请先用温和共情的语气回应对方的情绪，再给出具体、可操作的建议；回复保持简洁，一般不超过300字。",
-  "如果用户表现出明显的自伤或危机倾向，请优先建议拨打心理援助热线（如希望24热线400-161-9995）或联系信任的人。",
-].join("\n");
+//System Prompt 与知识库上下文组装已迁到服务端 rag.py（RAG_CHAT_SYSTEM_PROMPT /
+//build_rag_context，措辞逐字保留），前端只负责展示，需要对照措辞去服务端看
 
 //流式对话方法：直连智谱GLM。
 //后端 /psychological-chat/stream 的AI服务故障（HTTP 200后挂起不出数据，表现为"一直繁忙"），
@@ -464,54 +454,17 @@ const startAiResponse = async (sessionId: number | string) => {
     });
   };
 
-  //RAG检索：拿用户最新输入去知识库向量库找相关资料（失败降级为空，对话不受影响）
-  //性能埋点：用户感知的"首字耗时" = RAG检索 + 模型首token，拆开才知道该优化哪段
+  //RAG已在服务端完成：citations事件到达即引用就绪（检索+网络往返一跳）。
+  //性能埋点保留三段式——首字耗时 = 服务端RAG检索 + 模型首token
   const perf = { start: performance.now(), ragDone: 0, firstToken: 0 };
   const lastUserInput =
     [...message.value].reverse().find((m) => Number(m.senderType) === 1)
       ?.content || "";
-  let ragBudgetOut = false;
-  const references = lastUserInput
-    ? await Promise.race([
-        ragSearch(lastUserInput, 3),
-        //预算保险：检索超时就降级为无引用直接对话，绝不拖累首字
-        //（预热还没建完库的首条消息会走这里，库在后台继续建，下一条就正常带引用）
-        new Promise<RetrievedChunk[]>((resolve) =>
-          setTimeout(() => {
-            ragBudgetOut = true;
-            resolve([]);
-          }, RAG_BUDGET_MS),
-        ),
-      ])
-    : [];
-  perf.ragDone = performance.now();
-  if (!references.length && ragBudgetOut) {
-    //超时降级不能静默：否则控制台无法区分"检索为空"和"结果被预算丢弃"
-    console.warn(`[RAG] 检索超${RAG_BUDGET_MS}ms预算被丢弃，本条消息未带知识库上下文`);
-  }
-  if (references.length) {
-    //引用卡片数据挂到AI消息上：回答完成后展示，并随消息一起本地持久化
-    aiMessage.citations = references.map((r, i) => ({
-      index: i + 1,
-      articleId: r.articleId,
-      articleTitle: r.articleTitle,
-      heading: r.heading,
-    }));
-  }
-  //检索到的资料注入system prompt供模型参考；正文不标注序号，来源统一由下方引用卡片展示
-  const ragContext = references.length
-    ? [
-        "以下是知识库中与用户问题相关的资料，回答时自然地参考；与问题无关的请忽略，不要在回答里标注来源序号（如[1][2]）：",
-        ...references.map(
-          (r, i) =>
-            `[${i + 1}] 《${r.articleTitle}》—— ${r.heading}\n${r.text.slice(0, 300)}`,
-        ),
-      ].join("\n\n")
-    : "";
 
-  //携带最近10条对话作为上下文，AI依然记得前文
+  //携带最近10条对话作为上下文（刚发出的这条单独走 message 字段，不重复进history）
   const history = message.value
     .filter((msg) => !msg.isError && msg.content)
+    .slice(0, -1)
     .slice(-10)
     .map((msg) => ({
       role: (Number(msg.senderType) === 1 ? "user" : "assistant") as
@@ -521,23 +474,31 @@ const startAiResponse = async (sessionId: number | string) => {
     }));
 
   try {
-    //GLM流式直连（OpenAI兼容SSE），打字机渲染见 onDelta
-    await chatCompletionStream(
-      [
-        {
-          role: "system",
-          content: [GLM_SYSTEM_PROMPT, ragContext].filter(Boolean).join("\n\n"),
-        },
-        ...history,
-      ],
+    //服务端RAG对话（SSE）：citations先到（引用卡片数据），token字流接打字机
+    await ragChatStream(
+      { message: lastUserInput, history },
       {
+        onCitations: (citations) => {
+          perf.ragDone = performance.now();
+          //引用卡片数据挂到AI消息上：回答完成后展示，并随消息一起本地持久化
+          aiMessage.citations = citations.map((c) => ({
+            index: c.index,
+            articleId: c.articleId,
+            articleTitle: c.articleTitle,
+            heading: c.heading,
+          }));
+        },
         onDelta: (delta) => {
           //首个delta到达 = 模型首字：只记一次，打印分段耗时拆解
           if (!perf.firstToken) {
             perf.firstToken = performance.now();
+            //无引用的消息没有citations时刻：不分段，避免负数耗时
+            if (!perf.ragDone) {
+              perf.ragDone = perf.firstToken;
+            }
             console.info(
               `[性能] 首字总耗时 ${Math.round(perf.firstToken - perf.start)}ms` +
-                `（RAG检索 ${Math.round(perf.ragDone - perf.start)}ms + 模型首token ${Math.round(perf.firstToken - perf.ragDone)}ms）`,
+                `（服务端RAG ${Math.round(perf.ragDone - perf.start)}ms + 模型首token ${Math.round(perf.firstToken - perf.ragDone)}ms）`,
             );
           }
           //新内容先进缓冲区，再（重新）启动打字机逐帧展示
@@ -702,8 +663,7 @@ onMounted(() => {
   // 页面加载时，自动创建一个新的会话
   creatNewFrontEndSession();
   getSessionHistory();
-  //后台预热RAG向量库：首次建库的冷启动藏进用户浏览期间，而不是压在第一条消息上
-  ragWarmup();
+  //RAG预热已不需要：知识库在服务端，由 agent-server 启动时的 lifespan 后台灌库
 });
 
 onUnmounted(() => {
