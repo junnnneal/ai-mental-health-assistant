@@ -37,6 +37,9 @@ onMounted(() => {
         <router-link to="/consultation" class="nav-link" v-if="isLoggedIn"
           >AI咨询</router-link
         >
+        <router-link to="/health-butler" class="nav-link" v-if="isLoggedIn"
+          >AI健康管家</router-link
+        >
         <router-link to="/emotion-diary" class="nav-link" v-if="isLoggedIn"
           >情绪日记</router-link
         >

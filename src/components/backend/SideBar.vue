@@ -39,11 +39,7 @@ const handleClose = (key: string) => {};
       class="meun-style"
     >
       <div class="brand">
-        <el-image
-          style="width: 50px; height: 50px; margin-right: 10px"
-          :src="logoImg"
-          alt="logo"
-        />
+        <el-image class="logo" :src="logoImg" alt="logo" />
         <div v-show="!isCollapsed" class="info-card">
           <h1 class="brand-title">心理健康AI助手</h1>
           <p class="brand-subtitle">管理后台</p>
@@ -69,11 +65,24 @@ const handleClose = (key: string) => {};
   .brand {
     display: flex;
     align-items: center;
-    justify-content: center;
-    padding: 10px;
+    //图标固定贴左7px：(64-50)/2=7，折叠时正好在64px侧栏居中，
+    //展开/折叠位置完全不动（不能整体居中，否则两种状态下图标会左右跳）
+    justify-content: flex-start;
+    padding: 0 7px;
+    //与顶栏 el-header 同高（含边线box-sizing），两条底边线才能对齐
+    height: 76px;
+    box-sizing: border-box;
     background-color: #fff;
     border-bottom: 1px solid #e5e7eb;
+    .logo {
+      width: 50px;
+      height: 50px;
+      //折叠态侧栏只剩64px，flex默认收缩会把图标压扁，禁止缩
+      flex-shrink: 0;
+    }
     .info-card {
+      margin-left: 10px;
+      white-space: nowrap;
       .brand-title {
         font-size: 20px;
         font-weight: bold;

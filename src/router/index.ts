@@ -53,6 +53,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: "AI咨询" },
       },
       {
+        path: "health-butler",
+        name: "health-butler",
+        component: () => import("@/views/frontend/HealthButler.vue"),
+        meta: { title: "AI健康管家" },
+      },
+      {
         path: "emotion-diary",
         name: "emotion-diary",
         component: () => import("@/views/frontend/EmotionDiary.vue"),
@@ -101,11 +107,26 @@ const router = createRouter({
 //路由前置守卫
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem("token");
-  const userInfo = JSON.parse(localStorage.getItem("userInfo") || "{}");
+  //userInfo 可能存了 "undefined"/损坏JSON（登录接口半挂时签了token但没返回用户信息），
+  //JSON.parse 会抛异常炸掉整个守卫，这里必须安全解析
+  let userInfo: { userType?: number } = {};
+  try {
+    userInfo = JSON.parse(localStorage.getItem("userInfo") || "{}");
+  } catch {
+    userInfo = {};
+  }
 
-  if (!token) {
+  //未登录，或登录态残缺（有token但userInfo无效）都按未登录处理，清掉脏数据
+  if (!token || ![1, 2].includes(userInfo.userType as number)) {
+    if (token) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("userInfo");
+    }
     if (to.path.startsWith("/back")) {
       next("/auth/login");
+    } else if (to.path.startsWith("/auth")) {
+      //目标已是登录/注册页：直接放行，否则会造成无限重定向死锁（点了任何导航都无反应）
+      next();
     } else {
       next();
     }

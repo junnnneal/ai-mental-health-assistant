@@ -1,0 +1,25 @@
+[build]
+  command = "npm run build"
+  publish = "dist/client"
+
+[functions]
+  # /llm 生产代理函数所在目录（默认即此目录，显式声明防歧义）
+  directory = "netlify/functions"
+
+# GLM代理：开发环境走vite proxy注入key，生产走上面的Function注入key，前端代码同一个 /llm 路径
+[[redirects]]
+  from = "/llm/*"
+  to = "/.netlify/functions/llm/:splat"
+  status = 200
+
+# 课程后端直代理：登录、文章、会话等业务接口（与vite /api 代理同规则）
+[[redirects]]
+  from = "/api/*"
+  to = "http://159.75.169.224:1235/:splat"
+  status = 200
+
+# SPA回退必须放最后：以上路由都匹配不到才回落到index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

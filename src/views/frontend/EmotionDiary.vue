@@ -16,7 +16,13 @@ import {
 const formRef = ref<FormInstance>();
 const isSaving = ref(false);
 
-const getToday = () => new Date().toISOString().slice(0, 10);
+//取本地日期：toISOString是UTC，北京时间早8点前会得到昨天，
+//日记会被记到前一天、进而覆盖前一天那条（接口按diaryDate一天一条）
+const getToday = () => {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
 
 const defaultForm = (): DiaryForm => ({
   diaryDate: getToday(),
@@ -109,6 +115,8 @@ const submitDiary = async () => {
   isSaving.value = true;
   try {
     await createOrUpdateEmotionDiary({ ...diaryForm });
+    //保存成功后清空表单回到默认值；失败不动，避免用户已填内容丢失
+    resetForm();
     ElMessage.success("情绪日记保存成功");
   } catch (error) {
     ElMessage.error("情绪日记保存失败");

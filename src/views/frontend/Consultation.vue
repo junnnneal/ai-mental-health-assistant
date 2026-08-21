@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, reactive, onMounted, onUnmounted } from "vue";
 import {
   startSession,
   getSessionMessages,
   deleteSession,
   getSessionList,
-  getSessionEmotion,
 } from "@/apis/frontEnd";
 import { ElMessage } from "element-plus";
 import {
@@ -17,8 +16,18 @@ import {
   Refresh,
 } from "@element-plus/icons-vue";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { chatCompletionStream } from "@/apis/llm";
+import { useRag } from "@/composables/useRag";
+import { analyzeEmotion } from "@/composables/useEmotionAnalysis";
+import {
+  getLocalMessages,
+  mergeHistory,
+  migrateLocalHistory,
+  removeLocalHistory,
+  saveLocalMessage,
+} from "@/utils/localChatHistory";
 import type { ChatMessage, EmotionGarden, SessionHistoryItem } from "@/types";
+import type { RetrievedChunk } from "@/rag/types";
 
 const iconUrl1 = new URL("@/assets/images/robot-fill.png", import.meta.url)
   .href;
@@ -61,7 +70,27 @@ const userInput = ref("");
 
 const isAiTyping = ref(false);
 
+//RAG知识库检索（失败自动降级为无引用模式，对话不受影响）
+//检索预算：超时直接放弃引用。预算必须盖住整条链路——列表指纹~50ms + IndexedDB全量读
+//+ query向量化200~300ms（智谱抖动可到1s+）。原500ms卡在耗时线上，race经常判超时
+//把检索结果静默丢掉，表现为"AI像没用RAG"；1500ms基本必达，仍兜底防无限拖首字
+const RAG_BUDGET_MS = 1500;
+const { search: ragSearch, warmup: ragWarmup } = useRag();
+
 const isUserMessage = (msg: ChatMessage) => Number(msg.senderType) === 1;
+
+//消息时间显示：ISO字符串直接渲染像乱码（2026-08-20T13:51:23.456Z），转成本地友好格式
+const formatMsgTime = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return iso;
+  }
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return d.toDateString() === new Date().toDateString()
+    ? hm
+    : `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+};
 
 //情绪花园数据
 const emotionGarden = ref<EmotionGarden>(createDefaultEmotionGarden());
@@ -125,14 +154,12 @@ const getRiskText = () => {
 };
 
 const refreshCurrentEmotion = () => {
-  const sessionId = currentSession.value
-    ? getEmotionSessionId(currentSession.value)
-    : "";
-  if (!sessionId || currentSession.value?.status === "TEMP") {
-    ElMessage.warning("请先选择或创建有效会话");
+  //刷新按钮：消息都在本地（后端只存了首条初始消息），直接对当前对话跑本地分析
+  if (!message.value.some((msg) => msg.content && !msg.isError)) {
+    ElMessage.warning("当前会话还没有对话内容");
     return;
   }
-  loadSessionEmotion(sessionId);
+  refreshEmotionFromConversation();
 };
 
 const normalizeEmotionGarden = (data: any): EmotionGarden => {
@@ -147,10 +174,12 @@ const normalizeEmotionGarden = (data: any): EmotionGarden => {
     ["焦虑", "悲伤", "愤怒", "恐惧", "压力", "低落"].some((name) =>
       String(primaryEmotion).includes(name),
     );
-  const riskLevel = (source.riskLevel || source.risk || "low") as
-    | "low"
-    | "medium"
-    | "high";
+  //riskLevel后端返回数字0/1/2（原代码||判断里0恰好falsy才侥幸落回low），本地分析给字符串：统一转换
+  const rawRisk = source.riskLevel ?? source.risk;
+  const riskLevel = (
+    (typeof rawRisk === "number" ? ["low", "medium", "high"][rawRisk] : rawRisk) ||
+    "low"
+  ) as "low" | "medium" | "high";
 
   return {
     primaryEmotion,
@@ -159,6 +188,7 @@ const normalizeEmotionGarden = (data: any): EmotionGarden => {
     summary:
       source.summary ||
       source.analysis ||
+      source.riskDescription ||
       `当前会话主要呈现${primaryEmotion}情绪，强度为${emotionScore}。`,
     suggestion:
       source.suggestion ||
@@ -169,6 +199,7 @@ const normalizeEmotionGarden = (data: any): EmotionGarden => {
     riskLevel,
     actionItems:
       source.actionItems ||
+      source.improvementSuggestions ||
       source.actions ||
       source.suggestions ||
       ["记录触发情绪的事件", "做一次 4-6 呼吸练习", "必要时联系可信任的人"],
@@ -245,6 +276,21 @@ const sendMessage = async () => {
   //发送信息后会话框的信息置空
   userInput.value = "";
 
+  //用户消息先上屏，AI回复流式追加在其后
+  const userMessage: ChatMessage = {
+    id: `user_${Date.now()}`,
+    senderType: 1,
+    content: inputMessage,
+    createdAt: new Date().toISOString(),
+  };
+  message.value.push(userMessage);
+  //后端AI服务故障期间消息存不进服务端：先按当前会话key落本地
+  //（temp会话等session/start成功后再把消息迁移到真实会话key下）
+  saveLocalMessage(
+    currentSession.value?.sessionId ?? currentSession.value?.id ?? "",
+    userMessage,
+  );
+
   //没有历史会话
   if (currentSession.value?.status === "TEMP") {
     //构建会话参数
@@ -260,28 +306,40 @@ const sendMessage = async () => {
         currentSession.value?.sessionTitle || "新会话";
     }
 
-    try {
-      const res = await startSession(sessionParams);
-      const sessionData = {
-        sessionId: res.sessionId,
-        status: res.status,
-        sessionTitle: sessionParams.sessionTitle,
-      };
-      //将当前会话对象更新为新创建的会话
-      if (currentSession.value.status === "TEMP") {
-        Object.assign(currentSession.value, sessionData);
-      } else {
-        currentSession.value = sessionData;
-      }
-      getSessionHistory();
+    //首字优先：不等后端建会话（慢的时候要好几秒，是最拖首字的一环），
+    //先用temp key立刻开流式；会话转正在后台进行，成功后迁移本地消息桶
+    const tempSessionId = currentSession.value?.sessionId ?? "temp_unknown";
+    startAiResponse(tempSessionId);
 
-      //开始流式对话
-      if (sessionData.sessionId) {
-        startAiResponse(sessionData.sessionId, inputMessage);
-      }
-    } catch (error) {
-      ElMessage.error("创建会话失败");
-      console.error("创建会话失败", error);
+    //转正请求单飞：连发消息时避免重复建会话
+    if (!sessionCreatePromise) {
+      sessionCreatePromise = startSession(sessionParams)
+        .then((res) => {
+          const sessionData = {
+            sessionId: res.sessionId,
+            status: res.status,
+            sessionTitle: sessionParams.sessionTitle,
+          };
+          //将当前会话对象更新为新创建的会话
+          if (currentSession.value?.status === "TEMP") {
+            Object.assign(currentSession.value, sessionData);
+          } else {
+            currentSession.value = sessionData;
+          }
+          //temp会话转正：把存在temp桶里的消息搬到真实会话桶（合并）
+          if (tempSessionId && tempSessionId !== sessionData.sessionId) {
+            migrateLocalHistory(tempSessionId, sessionData.sessionId);
+          }
+          getSessionHistory();
+        })
+        .catch((error) => {
+          //建会话失败不再拦着AI回答：消息留在temp桶，下一条消息会再次尝试转正
+          ElMessage.warning("会话同步失败，消息暂存本地");
+          console.error("创建会话失败", error);
+        })
+        .finally(() => {
+          sessionCreatePromise = null;
+        });
     }
   } else {
     const sessionId =
@@ -290,12 +348,39 @@ const sendMessage = async () => {
       ElMessage.warning("会话ID不存在，无法发送消息");
       return;
     }
-    startAiResponse(sessionId, inputMessage);
+    startAiResponse(sessionId);
   }
 };
 
-//流式对话方法
-const startAiResponse = (sessionId: number | string, userInput: string) => {
+//打字机动画的requestAnimationFrame句柄（模块级，供错误处理和组件卸载时中断）
+let typewriterRAF: number | null = null;
+
+//temp会话转正请求的单飞句柄：连发消息时不重复调session/start
+let sessionCreatePromise: Promise<void> | null = null;
+
+//打字机基础速度（字符/帧）和追平积压所需的帧数，可按观感调整
+const TYPEWRITER_BASE_SPEED = 2;
+const TYPEWRITER_CATCHUP_FRAMES = 30;
+
+//停止打字机动画
+const stopTypewriter = () => {
+  if (typewriterRAF !== null) {
+    cancelAnimationFrame(typewriterRAF);
+    typewriterRAF = null;
+  }
+};
+
+//智谱GLM降级通道的System Prompt：与后端AI助手保持一致的心理陪伴人设
+const GLM_SYSTEM_PROMPT = [
+  "你是Junnnneal AI助手，一位温暖、专业的心理健康陪伴助手。",
+  "请先用温和共情的语气回应对方的情绪，再给出具体、可操作的建议；回复保持简洁，一般不超过300字。",
+  "如果用户表现出明显的自伤或危机倾向，请优先建议拨打心理援助热线（如希望24热线400-161-9995）或联系信任的人。",
+].join("\n");
+
+//流式对话方法：直连智谱GLM。
+//后端 /psychological-chat/stream 的AI服务故障（HTTP 200后挂起不出数据，表现为"一直繁忙"），
+//且后端没有"向会话追加消息"的接口，所以改为前端直连LLM + 本地持久化（见 localChatHistory.ts）
+const startAiResponse = async (sessionId: number | string) => {
   if (isAiTyping.value) {
     ElMessage.warning("AI正在思考，请稍后再发送消息");
     return;
@@ -303,85 +388,183 @@ const startAiResponse = (sessionId: number | string, userInput: string) => {
 
   isAiTyping.value = true;
 
-  const aiMessage = {
+  //必须用reactive包装：打字机循环直接修改aiMessage.content才能触发视图更新，
+  //普通对象push进响应式数组后，闭包里持有的仍是原始对象，改它不会重新渲染
+  const aiMessage = reactive<ChatMessage>({
     id: `ai_${Date.now()}`,
     senderType: 2,
     content: "",
     createdAt: new Date().toISOString(),
-  };
+  });
   message.value.push(aiMessage);
 
-  //调用流式接口，获取AI的响应
-  const controller = new AbortController(); //用来终止fetch请求
-  fetchEventSource("/api/psychological-chat/stream", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      token: localStorage.getItem("token") || "",
-      Accept: "text/event-stream",
-    },
-    body: JSON.stringify({
-      sessionId: sessionId,
-      userInput: userInput,
-    }),
-    signal: controller.signal,
-    onopen: async (response) => {
-      const contentType = response.headers.get("content-type") || "";
-      if (!response.ok || !contentType.includes("text/event-stream")) {
-        handleError(
-          new Error(`流式接口异常：${response.status} ${response.statusText}`),
+  //完整文本缓冲区：SSE到达的内容先积累在这里，页面按打字机节奏逐帧展示
+  let fullText = "";
+  //已展示到第几个字符
+  let shownCount = 0;
+  //流是否已结束（done后等缓冲区播完再收尾）
+  let streamFinished = false;
+  let controller = new AbortController(); //用来终止fetch请求
+
+  //流式结束后的收尾：停动画、补全文本、解锁输入、存档、刷新情绪分析、断开连接
+  const finishStream = () => {
+    stopTypewriter();
+    aiMessage.content = fullText;
+    isAiTyping.value = false;
+    //性能埋点：完整一轮的产出速度（全文耗时与出字速率）
+    console.info(
+      `[性能] 全文完成：${fullText.length}字 / ${Math.round(performance.now() - perf.start)}ms`,
+    );
+    //AI回复落本地：落库取"当时"的会话id——temp会话可能在流式期间已被后台转正
+    const currentId =
+      currentSession.value?.sessionId ?? currentSession.value?.id ?? sessionId;
+    saveLocalMessage(currentId, { ...aiMessage });
+    //流式结束后跑一轮本地情绪分析（对话没走后端，后端分析没有语料）
+    refreshEmotionFromConversation();
+    controller.abort();
+  };
+
+  //流正常结束（done事件/[DONE]标记/连接关闭）：等缓冲区播完再收尾
+  const markStreamFinished = () => {
+    streamFinished = true;
+    if (typewriterRAF === null && shownCount >= fullText.length) {
+      finishStream();
+    }
+  };
+
+  //打字机循环：每帧从缓冲区取一小段字符追加显示，速度随积压量自适应
+  const playTypewriter = () => {
+    typewriterRAF = requestAnimationFrame(() => {
+      typewriterRAF = null;
+      const backlog = fullText.length - shownCount;
+      if (backlog > 0) {
+        //基础速度保证平滑；积压越多追得越快，约TYPEWRITER_CATCHUP_FRAMES帧内追平
+        const speed = Math.max(
+          TYPEWRITER_BASE_SPEED,
+          Math.ceil(backlog / TYPEWRITER_CATCHUP_FRAMES),
         );
-        controller.abort();
+        shownCount = Math.min(fullText.length, shownCount + speed);
+        //刚好切在emoji等代理对中间时多带一个字符，避免出现乱码
+        if (
+          shownCount < fullText.length &&
+          fullText.charCodeAt(shownCount) >= 0xdc00 &&
+          fullText.charCodeAt(shownCount) <= 0xdfff
+        ) {
+          shownCount++;
+        }
+        aiMessage.content = fullText.slice(0, shownCount);
       }
-    },
-    onmessage(event) {
-      try {
-        const raw = event.data.trim();
-        if (!raw) return;
-        const eventName = event.event;
-        //当前会话的AI消息
-        const aiMessage = message.value[message.value.length - 1];
 
-        if (eventName === "done") {
-          isAiTyping.value = false;
-          loadSessionEmotion(sessionId);
-          controller.abort();
-          return;
-        }
+      if (shownCount < fullText.length) {
+        playTypewriter();
+      } else if (streamFinished) {
+        finishStream();
+      }
+      //缓冲区暂时播完且流未结束：先停下，等下一批SSE数据到达后再重启
+    });
+  };
 
-        const payload = JSON.parse(raw);
-        if (eventName === "error") {
-          handleError(payload);
-          controller.abort();
-          return;
-        }
+  //RAG检索：拿用户最新输入去知识库向量库找相关资料（失败降级为空，对话不受影响）
+  //性能埋点：用户感知的"首字耗时" = RAG检索 + 模型首token，拆开才知道该优化哪段
+  const perf = { start: performance.now(), ragDone: 0, firstToken: 0 };
+  const lastUserInput =
+    [...message.value].reverse().find((m) => Number(m.senderType) === 1)
+      ?.content || "";
+  let ragBudgetOut = false;
+  const references = lastUserInput
+    ? await Promise.race([
+        ragSearch(lastUserInput, 3),
+        //预算保险：检索超时就降级为无引用直接对话，绝不拖累首字
+        //（预热还没建完库的首条消息会走这里，库在后台继续建，下一条就正常带引用）
+        new Promise<RetrievedChunk[]>((resolve) =>
+          setTimeout(() => {
+            ragBudgetOut = true;
+            resolve([]);
+          }, RAG_BUDGET_MS),
+        ),
+      ])
+    : [];
+  perf.ragDone = performance.now();
+  if (!references.length && ragBudgetOut) {
+    //超时降级不能静默：否则控制台无法区分"检索为空"和"结果被预算丢弃"
+    console.warn(`[RAG] 检索超${RAG_BUDGET_MS}ms预算被丢弃，本条消息未带知识库上下文`);
+  }
+  if (references.length) {
+    //引用卡片数据挂到AI消息上：回答完成后展示，并随消息一起本地持久化
+    aiMessage.citations = references.map((r, i) => ({
+      index: i + 1,
+      articleId: r.articleId,
+      articleTitle: r.articleTitle,
+      heading: r.heading,
+    }));
+  }
+  //检索到的资料注入system prompt供模型参考；正文不标注序号，来源统一由下方引用卡片展示
+  const ragContext = references.length
+    ? [
+        "以下是知识库中与用户问题相关的资料，回答时自然地参考；与问题无关的请忽略，不要在回答里标注来源序号（如[1][2]）：",
+        ...references.map(
+          (r, i) =>
+            `[${i + 1}] 《${r.articleTitle}》—— ${r.heading}\n${r.text.slice(0, 300)}`,
+        ),
+      ].join("\n\n")
+    : "";
 
-        const ok = String(payload.code) === "200";
-        if (ok && payload.data && payload.data.content) {
-          if (aiMessage) {
-            aiMessage.content += payload.data.content;
+  //携带最近10条对话作为上下文，AI依然记得前文
+  const history = message.value
+    .filter((msg) => !msg.isError && msg.content)
+    .slice(-10)
+    .map((msg) => ({
+      role: (Number(msg.senderType) === 1 ? "user" : "assistant") as
+        | "user"
+        | "assistant",
+      content: String(msg.content),
+    }));
+
+  try {
+    //GLM流式直连（OpenAI兼容SSE），打字机渲染见 onDelta
+    await chatCompletionStream(
+      [
+        {
+          role: "system",
+          content: [GLM_SYSTEM_PROMPT, ragContext].filter(Boolean).join("\n\n"),
+        },
+        ...history,
+      ],
+      {
+        onDelta: (delta) => {
+          //首个delta到达 = 模型首字：只记一次，打印分段耗时拆解
+          if (!perf.firstToken) {
+            perf.firstToken = performance.now();
+            console.info(
+              `[性能] 首字总耗时 ${Math.round(perf.firstToken - perf.start)}ms` +
+                `（RAG检索 ${Math.round(perf.ragDone - perf.start)}ms + 模型首token ${Math.round(perf.firstToken - perf.ragDone)}ms）`,
+            );
           }
-        } else if (!ok) {
-          handleError(payload);
-          controller.abort();
-        }
-      } catch (error) {
-        handleError(error);
-        controller.abort();
-      }
-    },
-    onerror(error) {
+          //新内容先进缓冲区，再（重新）启动打字机逐帧展示
+          fullText += delta;
+          if (typewriterRAF === null) {
+            playTypewriter();
+          }
+        },
+        onDone: markStreamFinished,
+      },
+      controller.signal,
+    );
+  } catch (error) {
+    if (fullText) {
+      //中断时已产出部分内容：按正常结束收尾，不弹错误
+      markStreamFinished();
+    } else {
       handleError(error);
       controller.abort();
-    },
-    onclose() {
-      isAiTyping.value = false;
-    },
-  });
+    }
+  }
 };
 
 //错误处理函数
 const handleError = (error: any) => {
+  //先停掉打字机动画，避免错误提示被流式文本继续覆盖
+  stopTypewriter();
   const errorMessage = getErrorMessage(error);
   //当前会话的AI消息
   const aiMessage = message.value[message.value.length - 1];
@@ -416,14 +599,28 @@ const getSessionHistory = async () => {
     : historyData?.records || [];
 };
 
-const loadSessionEmotion = async (sessionId: number | string) => {
+//每轮对话后本地分析情绪：聊天走GLM直连后消息只在本地，课程后端只存了
+//session/start的首条消息、分析不出东西；这里拿当前会话最近10条消息跑
+//非流式GLM分析，结果字段与后端emotion接口对齐，复用同一套宽容归一化
+const refreshEmotionFromConversation = async () => {
+  const recent = message.value
+    .filter((msg) => !msg.isError && msg.content)
+    .slice(-10)
+    .map((msg) => ({
+      role: (Number(msg.senderType) === 1 ? "user" : "assistant") as
+        | "user"
+        | "assistant",
+      content: String(msg.content),
+    }));
   isEmotionLoading.value = true;
   try {
-    const emotionData = await getSessionEmotion(sessionId);
-    emotionGarden.value = normalizeEmotionGarden(emotionData);
+    const result = await analyzeEmotion(recent);
+    if (result) {
+      emotionGarden.value = normalizeEmotionGarden(result);
+    }
   } catch (error) {
-    emotionGarden.value = createDefaultEmotionGarden();
-    console.error("获取情绪分析失败", error);
+    //情绪面板是辅助信息：分析失败保持花园现状，不打断对话
+    console.warn("本地情绪分析失败，花园保持上一状态", error);
   } finally {
     isEmotionLoading.value = false;
   }
@@ -439,16 +636,6 @@ const getEmotionSessionId = (session: SessionHistoryItem) => {
   return /^\d+$/.test(idText) ? `session_${idText}` : idText;
 };
 
-const loadSessionEmotionBySession = async (session: SessionHistoryItem) => {
-  const sessionId = getEmotionSessionId(session);
-  if (!sessionId) {
-    emotionGarden.value = createDefaultEmotionGarden();
-    return;
-  }
-
-  await loadSessionEmotion(sessionId);
-};
-
 //点击历史会话列表
 const handleSessionLink = async (session: SessionHistoryItem) => {
   currentSession.value = session;
@@ -459,7 +646,13 @@ const handleSessionLink = async (session: SessionHistoryItem) => {
   }
   try {
     const sessionMessages = await getSessionList(sessionId);
-    message.value = normalizeMessages(sessionMessages);
+    //服务端历史 + 本地历史合并：服务端只存了session/start的首条用户消息，
+    //直连LLM期间的用户消息和AI回复都在本地（见 localChatHistory.ts）
+    message.value = mergeHistory(
+      normalizeMessages(sessionMessages),
+      //v2存储层是IndexedDB异步读取，这里必须等结果再合并
+      await getLocalMessages(sessionId),
+    );
     console.log("历史会话消息", sessionMessages);
 
     //更新当前会话数据，保留接口返回的原始ID字段
@@ -474,7 +667,8 @@ const handleSessionLink = async (session: SessionHistoryItem) => {
     return;
   }
 
-  loadSessionEmotionBySession(session);
+  //历史会话：消息刚合并进 message，直接本地分析（后端同样只有首条初始消息）
+  refreshEmotionFromConversation();
 };
 
 //删除历史会话
@@ -487,6 +681,8 @@ const deleteHistory = async (session: SessionHistoryItem) => {
 
   try {
     await deleteSession(deleteId);
+    //同步清理该会话的本地历史，避免残留
+    removeLocalHistory(deleteId);
     ElMessage.success("删除会话成功");
     await getSessionHistory();
 
@@ -506,6 +702,13 @@ onMounted(() => {
   // 页面加载时，自动创建一个新的会话
   creatNewFrontEndSession();
   getSessionHistory();
+  //后台预热RAG向量库：首次建库的冷启动藏进用户浏览期间，而不是压在第一条消息上
+  ragWarmup();
+});
+
+onUnmounted(() => {
+  //组件卸载时停止打字机动画，避免残留帧继续改数据
+  stopTypewriter();
 });
 </script>
 
@@ -760,11 +963,28 @@ onMounted(() => {
                 v-else-if="msg.content"
                 v-html="formatUserMessageContent(msg.content)"
               ></p>
+              <!-- RAG引用来源卡片：回答完成后展示参考的知识库文章出处 -->
+              <div
+                v-if="msg.citations?.length && msg.content && !msg.isError"
+                class="citations"
+              >
+                <div class="citations-title">📚 参考来源</div>
+                <div
+                  v-for="c in msg.citations"
+                  :key="c.index"
+                  class="citation-card"
+                >
+                  <span class="citation-index">[{{ c.index }}]</span>
+                  <span class="citation-text">
+                    {{ c.articleTitle }} · {{ c.heading }}
+                  </span>
+                </div>
+              </div>
               <div class="message-time">
                 {{
                   msg.senderType === 2 && isAiTyping
                     ? "正在输入中..."
-                    : msg.createdAt
+                    : formatMsgTime(msg.createdAt)
                 }}
               </div>
             </div>
@@ -1422,6 +1642,40 @@ onMounted(() => {
               display: flex;
               align-items: center;
               gap: 8px;
+            }
+            /* RAG引用来源卡片 */
+            .citations {
+              margin-top: 10px;
+              padding-top: 8px;
+              border-top: 1px dashed rgba(251, 146, 60, 0.35);
+              .citations-title {
+                font-size: 12px;
+                color: #b45309;
+                font-weight: 600;
+                margin-bottom: 6px;
+                text-align: left;
+              }
+              .citation-card {
+                display: flex;
+                align-items: baseline;
+                gap: 6px;
+                padding: 4px 8px;
+                margin-bottom: 4px;
+                border-radius: 8px;
+                background: rgba(251, 146, 60, 0.07);
+                .citation-index {
+                  font-size: 11px;
+                  color: #fb923c;
+                  font-weight: 700;
+                  flex-shrink: 0;
+                }
+                .citation-text {
+                  font-size: 12px;
+                  color: #92400e;
+                  line-height: 1.4;
+                  text-align: left;
+                }
+              }
             }
           }
           .message-time {

@@ -83,6 +83,15 @@ export interface SessionHistoryItem {
   durationMinutes?: number
 }
 
+/** RAG引用来源卡片数据 */
+export interface MessageCitation {
+  //来源序号，对应AI回答中的[1][2]标注
+  index: number
+  articleId: number | string
+  articleTitle: string
+  heading: string
+}
+
 /** AI 咨询消息 */
 export interface ChatMessage {
   id: number | string
@@ -95,7 +104,10 @@ export interface ChatMessage {
   contentLength?: number
   contentPreview?: string
   createdAt: string
+  //前端标记：该消息是错误提示（不参与本地持久化）
   isError?: boolean
+  //RAG检索命中的参考来源（随消息一起本地持久化）
+  citations?: MessageCitation[]
 }
 
 /** 情绪花园展示数据 */

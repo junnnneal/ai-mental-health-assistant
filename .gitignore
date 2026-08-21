@@ -11,6 +11,9 @@ node_modules
 .DS_Store
 # Sites expects the deployable output in dist/server/index.js.
 dist-ssr
+# Netlify改为服务端构建后不再提交构建产物；AI_Project/是仓库内旧副本，勿入库
+dist/
+AI_Project/
 coverage
 *.local
 
@@ -37,3 +40,10 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+
+# Python Agent 服务
+agent-server/.venv/
+agent-server/.env
+agent-server/__pycache__/
+**/__pycache__/
+*.pyc
