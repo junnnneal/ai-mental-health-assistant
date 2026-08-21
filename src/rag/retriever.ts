@@ -145,9 +145,11 @@ export const retrieve = async (
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
   //检索必须有痕：否则"检索为空"和"上层把结果丢了"在控制台里无法区分（排查时两眼一抹黑）
-  if (top.length) {
+  //noUncheckedIndexedAccess下length守卫不能收窄top[0]：先取出局部变量再判空
+  const best = top[0];
+  if (best) {
     console.log(
-      `[RAG] 检索命中${top.length}块，最高分${top[0].score.toFixed(3)}《${top[0].articleTitle}》`,
+      `[RAG] 检索命中${top.length}块，最高分${best.score.toFixed(3)}《${best.articleTitle}》`,
     );
   }
   return top;
