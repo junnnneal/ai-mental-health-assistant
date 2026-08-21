@@ -367,9 +367,9 @@ const stopTypewriter = () => {
 //System Prompt 与知识库上下文组装已迁到服务端 rag.py（RAG_CHAT_SYSTEM_PROMPT /
 //build_rag_context，措辞逐字保留），前端只负责展示，需要对照措辞去服务端看
 
-//流式对话方法：直连智谱GLM。
-//后端 /psychological-chat/stream 的AI服务故障（HTTP 200后挂起不出数据，表现为"一直繁忙"），
-//且后端没有"向会话追加消息"的接口，所以改为前端直连LLM + 本地持久化（见 localChatHistory.ts）
+//流式对话方法：走服务端RAG（agent-server /rag/chat，SSE：citations→token→done）。
+//历史：课程后端 /psychological-chat/stream 故障（HTTP 200后挂起不出数据）且无追加消息接口，
+//先改前端直连GLM，RAG迁服务端后统一走 /agent/rag/chat；本地持久化见 localChatHistory.ts
 const startAiResponse = async (sessionId: number | string) => {
   if (isAiTyping.value) {
     ElMessage.warning("AI正在思考，请稍后再发送消息");
@@ -409,7 +409,7 @@ const startAiResponse = async (sessionId: number | string) => {
     const currentId =
       currentSession.value?.sessionId ?? currentSession.value?.id ?? sessionId;
     saveLocalMessage(currentId, { ...aiMessage });
-    //流式结束后跑一轮本地情绪分析（对话没走后端，后端分析没有语料）
+    //流式结束后跑一轮情绪分析（agent-server /agent/analyze；后端会话没有语料可分析）
     refreshEmotionFromConversation();
     controller.abort();
   };
