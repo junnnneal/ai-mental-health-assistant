@@ -268,17 +268,29 @@ const submitDiary = async () => {
 
         <div class="summary-list">
           <div class="summary-item">
-            <el-icon><Moon /></el-icon>
-            <div>
-              <span>{{ sleepLabel }}</span>
-              <p>睡眠质量 {{ diaryForm.sleepQuality }} / 5</p>
+            <div class="item-top">
+              <span class="item-icon"><el-icon><Moon /></el-icon></span>
+              <div class="item-title">
+                <span>{{ sleepLabel }}</span>
+                <p>睡眠质量</p>
+              </div>
+              <b>{{ diaryForm.sleepQuality }}<i>/ 5</i></b>
+            </div>
+            <div class="item-bar">
+              <i :style="{ width: (diaryForm.sleepQuality / 5) * 100 + '%' }"></i>
             </div>
           </div>
           <div class="summary-item">
-            <el-icon><Warning /></el-icon>
-            <div>
-              <span>{{ stressLabel }}</span>
-              <p>压力水平 {{ diaryForm.stressLevel }} / 5</p>
+            <div class="item-top">
+              <span class="item-icon"><el-icon><Warning /></el-icon></span>
+              <div class="item-title">
+                <span>{{ stressLabel }}</span>
+                <p>压力水平</p>
+              </div>
+              <b>{{ diaryForm.stressLevel }}<i>/ 5</i></b>
+            </div>
+            <div class="item-bar">
+              <i :style="{ width: (diaryForm.stressLevel / 5) * 100 + '%' }"></i>
             </div>
           </div>
         </div>
@@ -298,6 +310,8 @@ const submitDiary = async () => {
 .emotionDiary-container {
   min-height: calc(100vh - 120px);
   background: linear-gradient(135deg, #fafbfc 0%, #fffaf3 52%, #f2f7f5 100%);
+  // 页面级左右留白：banner和内容列都在这个栅格里居中
+  padding: 0 28px;
   .header-section {
     background: linear-gradient(135deg, #22c55e 0%, #f59e0b 100%);
     color: white;
@@ -306,6 +320,13 @@ const submitDiary = async () => {
     align-items: center;
     justify-content: space-between;
     box-shadow: 0 10px 30px rgba(34, 197, 94, 0.12);
+    // 四角全圆的浮动卡片：与下方内容列同宽居中，边缘落在同一栅格上
+    // box-sizing必须显式补：项目没引base.css，全局无border-box，
+    // 默认content-box会把48px侧padding加在max-width外，外宽变1376与内容列错位
+    box-sizing: border-box;
+    margin: 20px auto 0;
+    max-width: 1280px;
+    border-radius: 24px;
     .header-content {
       display: flex;
       align-items: center;
@@ -344,12 +365,16 @@ const submitDiary = async () => {
     }
   }
   .content {
+    width: 100%;
+    // 限宽居中：今日记录收窄，仪表盘离开屏幕右缘
+    max-width: 1280px;
     margin: 0 auto;
-    width: 1120px;
-    padding: 24px 20px 36px;
+    padding: 24px 0 36px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 320px;
     gap: 20px;
+    // start是sticky生效的前提：grid默认stretch会把子项拉满整行高度，
+    // 拉满后没有富余空间，position:sticky就不会动
     align-items: start;
     .diary-card,
     .summary-panel {
@@ -504,18 +529,20 @@ const submitDiary = async () => {
       }
     }
     .summary-panel {
-      padding: 20px;
+      padding: 24px;
+      // 自然高度 + 吸顶：卡片多高就多高，下滑时钉在视口顶部跟随，
+      // 右侧始终有内容（不再等高拉伸、也不再滑走缺块）
       position: sticky;
       top: 18px;
       .summary-score {
         display: flex;
         align-items: center;
-        gap: 14px;
-        padding-bottom: 18px;
+        gap: 16px;
+        padding-bottom: 20px;
         border-bottom: 1px solid rgba(148, 163, 184, 0.16);
         .score-ring {
-          width: 86px;
-          height: 86px;
+          width: 100px;
+          height: 100px;
           border-radius: 50%;
           display: flex;
           flex-direction: column;
@@ -527,7 +554,7 @@ const submitDiary = async () => {
           color: #7c2d12;
           flex-shrink: 0;
           span {
-            font-size: 26px;
+            font-size: 30px;
             line-height: 1;
             font-weight: 800;
           }
@@ -537,7 +564,7 @@ const submitDiary = async () => {
           }
         }
         h3 {
-          font-size: 18px;
+          font-size: 20px;
           font-weight: 800;
           color: #1f2937;
           margin-bottom: 4px;
@@ -550,28 +577,79 @@ const submitDiary = async () => {
       .summary-list {
         display: flex;
         flex-direction: column;
-        gap: 12px;
-        padding: 18px 0;
+        gap: 14px;
+        padding: 20px 0;
         .summary-item {
-          display: flex;
-          gap: 10px;
-          align-items: flex-start;
-          color: #f59e0b;
-          span {
-            color: #374151;
-            font-weight: 700;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          border-radius: 12px;
+          padding: 14px;
+          background: #fbfcfb;
+          .item-top {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            .item-icon {
+              width: 36px;
+              height: 36px;
+              border-radius: 10px;
+              flex-shrink: 0;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 17px;
+              color: #f59e0b;
+              background: #fff7ed;
+            }
+            .item-title {
+              flex: 1;
+              min-width: 0;
+              span {
+                display: block;
+                color: #374151;
+                font-weight: 700;
+                font-size: 15px;
+              }
+              p {
+                margin-top: 2px;
+                color: #78716c;
+                font-size: 12px;
+              }
+            }
+            b {
+              font-size: 20px;
+              font-weight: 800;
+              color: #1f2937;
+              i {
+                font-style: normal;
+                font-size: 12px;
+                color: #a8a29e;
+                margin-left: 2px;
+              }
+            }
           }
-          p {
-            color: #78716c;
-            font-size: 12px;
+          .item-bar {
+            margin-top: 12px;
+            height: 6px;
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.2);
+            overflow: hidden;
+            i {
+              display: block;
+              height: 100%;
+              border-radius: inherit;
+              background: linear-gradient(90deg, #22c55e 0%, #f59e0b 100%);
+              transition: width 0.3s ease;
+            }
           }
         }
       }
       .gentle-note {
-        border-radius: 10px;
+        // 紧跟指标卡片自然排列；等高拉伸的留白留在卡片底部，
+        // 比把提醒顶到底、中间空一大块更自然
+        border-radius: 12px;
         background: linear-gradient(135deg, #fff7ed 0%, #f0fdf4 100%);
         border: 1px solid rgba(245, 158, 11, 0.14);
-        padding: 14px;
+        padding: 16px;
         .note-title {
           color: #92400e;
           font-weight: 800;
@@ -590,11 +668,7 @@ const submitDiary = async () => {
 @media (max-width: 1180px) {
   .emotionDiary-container {
     .content {
-      width: 100%;
       grid-template-columns: 1fr;
-      .summary-panel {
-        position: static;
-      }
     }
   }
 }
@@ -608,7 +682,7 @@ const submitDiary = async () => {
       gap: 14px;
     }
     .content {
-      padding: 16px;
+      padding: 16px 0;
       .diary-card {
         padding: 18px;
         .title-row {

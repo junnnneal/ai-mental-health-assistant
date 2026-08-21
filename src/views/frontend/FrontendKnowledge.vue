@@ -139,10 +139,8 @@ const loadArticles = async () => {
     });
     const { records, total } = normalizeArticleList(res);
     articles.value = records.length ? records : fallbackArticles;
-    recommendArticles.value = articles.value
-      .slice()
-      .sort((a, b) => (b.readCount || 0) - (a.readCount || 0))
-      .slice(0, 3);
+    // 推荐栏不在这里赋值：翻页会重跑本函数，会把全局Top6冲成当前页top3
+    // （推荐由loadRecommendations单独负责，仅在catch里用静态数据兜底）
     pagination.value.total = total || articles.value.length;
   } catch (error) {
     articles.value = fallbackArticles;
@@ -185,8 +183,28 @@ const handlePageChange = (page: number) => {
   loadArticles();
 };
 
+//推荐栏单独拉全局阅读量top4：只从当前页5篇里挑覆盖面太窄，
+//失败静默保留loadArticles里的当前页top3兜底
+const loadRecommendations = async () => {
+  try {
+    const res = await getKnowledgeArticlePage({
+      sortField: "readCount",
+      sortDirection: "desc",
+      currentPage: 1,
+      size: 4,
+    });
+    const { records } = normalizeArticleList(res);
+    if (records.length) {
+      recommendArticles.value = records.slice(0, 4);
+    }
+  } catch (error) {
+    console.error("获取推荐文章失败", error);
+  }
+};
+
 onMounted(() => {
   loadArticles();
+  loadRecommendations();
 });
 </script>
 
@@ -346,6 +364,8 @@ onMounted(() => {
 .knowledge-container {
   min-height: calc(100vh - 120px);
   background: linear-gradient(135deg, #fafbfc 0%, #f7f9fc 50%, #f2f6fa 100%);
+  // 页面级左右留白：banner和内容列都在这个栅格里居中（与情绪日记页同款）
+  padding: 0 28px;
   .flex-box {
     display: flex;
     align-items: center;
@@ -362,6 +382,13 @@ onMounted(() => {
     align-items: center;
     justify-content: space-between;
     gap: 24px;
+    // 四角圆角浮动卡片；border-box必须显式补（项目无全局重置，
+    // 否则48px侧padding加在max-width外，会与内容列错位96px）
+    box-sizing: border-box;
+    margin: 20px auto 0;
+    max-width: 1280px;
+    border-radius: 24px;
+    box-shadow: 0 10px 30px rgba(139, 92, 246, 0.14);
     .header-content {
       display: flex;
       align-items: center;
@@ -393,20 +420,28 @@ onMounted(() => {
     }
   }
   .content {
-    display: flex;
-    gap: 20px;
+    display: block;
+    position: relative;
     margin: 0 auto;
-    width: 1200px;
-    padding: 20px;
-    align-items: flex-start;
+    width: 100%;
+    max-width: 1280px;
+    padding: 20px 0 30px;
     .recommend-section {
+      // 定高侧栏：高度锁60vh与文章列表彻底解耦（列表换页/长短变化都不再传导），
+      // 只顶对齐首篇文章，底端不追平——彻底消除翻页弹动
+      position: absolute;
+      top: 20px;
+      left: 0;
       width: 280px;
+      height: 60vh;
+      // border-box必须补：无全局重置时padding加在width外，外宽312会压住文章列表12px
+      box-sizing: border-box;
       background: white;
       border-radius: 12px;
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
       padding: 16px;
-      position: sticky;
-      top: 18px;
+      display: flex;
+      flex-direction: column;
       .section-title {
         font-size: 15px;
         font-weight: 700;
@@ -420,8 +455,12 @@ onMounted(() => {
         }
       }
       .recommend-list {
+        flex: 1;
+        // 固定4篇+space-evenly撑满60vh定高，不滚动；矮屏极端溢出直接裁掉不出滚动条
+        overflow: hidden;
         display: flex;
         flex-direction: column;
+        justify-content: space-evenly;
         gap: 14px;
         .recommend-item {
           border-left: 4px solid #f59e0b;
@@ -455,18 +494,27 @@ onMounted(() => {
       }
     }
     .article-list {
-      flex: 1;
-      min-width: 0;
+      // 让出绝对定位推荐栏的宽度（280卡 + 20间距）
+      margin-left: 300px;
       .article-item {
         background: white;
         border-radius: 12px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
         padding: 16px;
         margin-bottom: 20px;
+        // 末篇不留尾随margin：推荐栏bottom锚点才能和最后一张卡底边严格齐平
+        &:last-child {
+          margin-bottom: 0;
+        }
         display: flex;
         gap: 18px;
         cursor: pointer;
         transition: all 0.2s ease;
+        // 高度恒定：标题nowrap+摘要clamp2行+meta单行，内容上界固定(~112)，
+        // 用min-height把1行摘要的矮卡垫到同一高度，消除每页组合差异导致的列表总高抖动
+        box-sizing: border-box;
+        min-height: 148px;
+        align-items: center;
         .article-cover {
           width: 96px;
           height: 96px;
@@ -536,6 +584,7 @@ onMounted(() => {
 .articleDetail-container {
   min-height: calc(100vh - 120px);
   background: linear-gradient(135deg, #fafbfc 0%, #f7f9fc 50%, #f2f6fa 100%);
+  padding: 0 28px;
   .flex-box {
     display: flex;
     align-items: center;
@@ -554,6 +603,12 @@ onMounted(() => {
     background: linear-gradient(135deg, #f59e0b 0%, #8b5cf6 100%);
     color: white;
     padding: 36px 48px;
+    // 阅读页整体窄一档（980），banner与内容列同宽对齐
+    box-sizing: border-box;
+    margin: 20px auto 0;
+    max-width: 980px;
+    border-radius: 24px;
+    box-shadow: 0 10px 30px rgba(139, 92, 246, 0.14);
     .header-content {
       display: flex;
       align-items: center;
@@ -571,8 +626,9 @@ onMounted(() => {
   }
   .content {
     margin: 0 auto;
-    width: 980px;
-    padding: 20px;
+    width: 100%;
+    max-width: 980px;
+    padding: 20px 0 30px;
     .diary-card {
       margin-bottom: 20px;
       background: white;
@@ -667,14 +723,6 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 1220px) {
-  .knowledge-container {
-    .content {
-      width: 100%;
-    }
-  }
-}
-
 @media (max-width: 900px) {
   .knowledge-container {
     .header-section {
@@ -686,16 +734,14 @@ onMounted(() => {
       }
     }
     .content {
-      flex-direction: column;
       .recommend-section {
-        width: 100%;
         position: static;
+        width: 100%;
+        height: auto;
       }
-    }
-  }
-  .articleDetail-container {
-    .content {
-      width: 100%;
+      .article-list {
+        margin-left: 0;
+      }
     }
   }
 }
