@@ -1,7 +1,12 @@
-fastapi
-uvicorn[standard]
-langgraph
-langchain-openai
-langchain-core
-httpx
-python-dotenv
+# 版本钉死到本地 venv 验证过的组合（Python 3.13）
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+langgraph==1.2.11
+langchain-openai==1.5.2
+langchain-core==1.5.6
+httpx==0.28.1
+python-dotenv==1.2.3
+# 向量库：必须 >=1.1（Rust 内核才有 Python 3.13 的预编译 wheel，
+# 旧版依赖 chroma-hnswlib 源码编译必失败）。装不上时删除本行重部署，
+# vector_store.py 的 ImportError 分支会自动降级 json 后端
+chromadb>=1.1,<2
