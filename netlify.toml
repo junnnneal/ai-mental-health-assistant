@@ -6,11 +6,9 @@
   # /llm 生产代理函数所在目录（默认即此目录，显式声明防歧义）
   directory = "netlify/functions"
 
-# GLM代理：开发环境走vite proxy注入key，生产走上面的Function注入key，前端代码同一个 /llm 路径
-[[redirects]]
-  from = "/llm/*"
-  to = "/.netlify/functions/llm/:splat"
-  status = 200
+# GLM代理路由由 netlify/functions/llm.mjs 内的 config.path = "/llm/:path*" 声明，
+# 此处不能再配 /llm 重定向：设了自定义path后 /.netlify/functions/llm 已失效，重定向会指向死地址。
+# 开发环境走vite proxy注入key，生产走Function注入key，前端代码同一个 /llm 路径。
 
 # 课程后端直代理：登录、文章、会话等业务接口
 # 注意保留/api前缀：vite代理无rewrite（路径原样转发），后端路由本身就挂在/api/*下
