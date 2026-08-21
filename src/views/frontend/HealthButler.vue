@@ -46,6 +46,10 @@ const streaming = ref(false);
 const listRef = ref<HTMLElement>();
 let abortController: AbortController | null = null;
 
+//agent-server（LangGraph Agent）只在本机运行，线上未部署：
+//提前说明比让访客发消息撞404后再看报错友好
+const isProd = import.meta.env.PROD;
+
 const SUGGESTIONS = [
   "我最近总是失眠，有什么科学的改善方法？",
   "帮我看看我最近的情绪状态怎么样",
@@ -202,6 +206,13 @@ const stop = () => {
       </div>
     </header>
 
+    <!-- 线上未部署Agent服务：进页面就说明，而不是等发消息撞404 -->
+    <div v-if="isProd" class="prod-notice">
+      线上演示说明：AI 健康管家由本地运行的 LangGraph Agent
+      服务驱动，线上环境未部署该服务，发送消息会提示连接失败。
+      完整体验请在本地项目启动 agent-server 后访问。
+    </div>
+
     <div class="chat-list" ref="listRef">
       <div v-if="messages.length === 0" class="empty-state">
         <div class="empty-icon">🧠</div>
@@ -354,6 +365,17 @@ const stop = () => {
   50% {
     opacity: 0.3;
   }
+}
+
+.prod-notice {
+  margin: 12px 28px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px dashed #fb923c;
+  background: #fff4e6;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #b45309;
 }
 
 .chat-list {
