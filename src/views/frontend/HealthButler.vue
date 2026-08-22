@@ -68,6 +68,20 @@ const scrollToBottom = async (force = false) => {
   if (force || nearBottom) el.scrollTop = el.scrollHeight;
 };
 
+//滚动条按需显现：滚动时挂 .is-scrolling 让滑块淡入，停止滚动0.8s后淡出
+//（纯CSS只能做hover显示，检测"正在滚动"必须靠scroll事件）
+let scrollHideTimer: number | undefined;
+const onChatScroll = () => {
+  const el = listRef.value;
+  if (!el) return;
+  el.classList.add("is-scrolling");
+  window.clearTimeout(scrollHideTimer);
+  scrollHideTimer = window.setTimeout(
+    () => el.classList.remove("is-scrolling"),
+    800,
+  );
+};
+
 const currentAssistant = (): ChatMsg | null => {
   const last = messages.value[messages.value.length - 1];
   return last?.role === "assistant" ? last : null;
@@ -211,7 +225,7 @@ const stop = () => {
       </div>
     </header>
 
-    <div class="chat-list" ref="listRef">
+    <div class="chat-list" ref="listRef" @scroll="onChatScroll">
       <div v-if="messages.length === 0" class="empty-state">
         <div class="empty-icon">🧠</div>
         <h3>我是你的 AI 健康管家</h3>
@@ -399,6 +413,27 @@ const stop = () => {
   width: min(920px, calc(100% - 2rem));
   margin: 0 auto;
   padding: clamp(1.3rem, 4vw, 2.5rem) 0;
+  /*滚动条默认隐形，滚动时由 .is-scrolling 淡入（见 onChatScroll）：
+    Firefox/新Chrome走 scrollbar-color，老Chromium走 ::-webkit-scrollbar-thumb */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  &.is-scrolling {
+    scrollbar-color: rgba(183, 89, 44, 0.4) transparent;
+  }
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+    transition: background-color 0.25s;
+  }
+  &.is-scrolling::-webkit-scrollbar-thumb {
+    background: rgba(183, 89, 44, 0.4);
+  }
 }
 
 .empty-state {
