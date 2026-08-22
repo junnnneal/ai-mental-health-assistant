@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from "vue";
+import { ref, reactive, nextTick, onMounted, onUnmounted } from "vue";
 import {
   startSession,
   getSessionMessages,
@@ -75,6 +75,19 @@ const isAiTyping = ref(false);
 //一跳完成，浏览器端不再建库/不再直连LLM（原 useRag + 检索预算降级逻辑随之移除）
 
 const isUserMessage = (msg: ChatMessage) => Number(msg.senderType) === 1;
+
+//消息区DOM引用：用于新消息/流式输出时自动滚到底部
+const chatMessagesRef = ref<HTMLElement | null>(null);
+//自动滚底：force=新消息直接贴底；流式更新时只在用户本来就在底部附近才跟随，
+//避免用户上翻阅读历史时被逐帧拽回底部
+const scrollChatToBottom = (force = false) => {
+  const el = chatMessagesRef.value;
+  if (!el) return;
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  if (force || nearBottom) {
+    el.scrollTop = el.scrollHeight;
+  }
+};
 
 //消息时间显示：ISO字符串直接渲染像乱码（2026-08-20T13:51:23.456Z），转成本地友好格式
 const formatMsgTime = (iso: string) => {
@@ -281,6 +294,7 @@ const sendMessage = async () => {
     createdAt: new Date().toISOString(),
   };
   message.value.push(userMessage);
+  scrollChatToBottom(true);
   //后端AI服务故障期间消息存不进服务端：先按当前会话key落本地
   //（temp会话等session/start成功后再把消息迁移到真实会话key下）
   saveLocalMessage(
@@ -390,6 +404,7 @@ const startAiResponse = async (sessionId: number | string) => {
     createdAt: new Date().toISOString(),
   });
   message.value.push(aiMessage);
+  scrollChatToBottom(true);
 
   //完整文本缓冲区：SSE到达的内容先积累在这里，页面按打字机节奏逐帧展示
   let fullText = "";
@@ -446,6 +461,8 @@ const startAiResponse = async (sessionId: number | string) => {
           shownCount++;
         }
         aiMessage.content = fullText.slice(0, shownCount);
+        //打字机逐帧出字时跟随滚底（用户上翻时自动让位）
+        scrollChatToBottom();
       }
 
       if (shownCount < fullText.length) {
@@ -618,6 +635,8 @@ const handleSessionLink = async (session: SessionHistoryItem) => {
       await getLocalMessages(sessionId),
     );
     console.log("历史会话消息", sessionMessages);
+    //历史消息合并渲染完成后贴底，看到的是最近对话
+    nextTick(() => scrollChatToBottom(true));
 
     //更新当前会话数据，保留接口返回的原始ID字段
     currentSession.value = {
@@ -861,7 +880,7 @@ onUnmounted(() => {
         </el-button>
       </div>
       <!-- 聊天区域 -->
-      <div class="chat-messages">
+      <div class="chat-messages" ref="chatMessagesRef">
         <!-- 欢迎用语：常驻第一条，不随对话开始而消失 -->
         <div class="message-item ai-message">
           <div class="message-avatar">
@@ -1747,6 +1766,8 @@ onUnmounted(() => {
   max-width: none;
   height: auto;
   min-height: calc(100dvh - 70px);
+  /*对话区不再被长侧栏拉伸：各自取自然高度，chat-main单独锁到视口高 */
+  align-items: flex-start;
   /* Full-bleed background, centered content rail (like the emotion diary page). */
   padding: clamp(0.75rem, 2vw, 1.35rem)
     max(21.6px, calc((100% - 1360px) / 2 + 21.6px));
@@ -1762,6 +1783,9 @@ onUnmounted(() => {
   width: clamp(250px, 25vw, 320px);
   scrollbar-width: thin;
   scrollbar-color: rgba(178,70,98,.24) transparent;
+  /*与chat-main同高、锁到视口底：侧栏内容多时内部滚动，不再把页面撑长 */
+  height: calc(100dvh - 70px - 2 * clamp(0.75rem, 2vw, 1.35rem));
+  overflow-y: auto;
 }
 
 .consultation-container .sidebar .ai-assistant-info,
@@ -1854,6 +1878,10 @@ onUnmounted(() => {
   border-radius: 1.35rem;
   background: #fff;
   backdrop-filter: none;
+  /*高度锁定到视口底部（容器min-height 100dvh-70px 减上下padding）：
+    输入框始终贴着页面底部，消息超出时由 .chat-messages 内部滚动 */
+  height: calc(100dvh - 70px - 2 * clamp(0.75rem, 2vw, 1.35rem));
+  flex-shrink: 0;
 }
 .consultation-container .chat-main .chat-header {
   padding: 1rem clamp(1rem, 3vw, 1.6rem);
@@ -1907,7 +1935,7 @@ onUnmounted(() => {
 
 @media (max-width: 920px) {
   .consultation-container { width: 100%; height: auto; min-height: calc(100dvh - 60px); flex-direction: column; }
-  .consultation-container .sidebar { width: 100%; max-height: none; overflow: visible; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .8rem; }
+  .consultation-container .sidebar { width: 100%; height: auto; max-height: none; overflow: visible; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .8rem; }
   .consultation-container .sidebar .ai-assistant-info { grid-column: 1 / -1; margin-bottom: 0; }
   .consultation-container .sidebar .emotion-garden, .consultation-container .sidebar .session-history { margin-bottom: 0; }
   .consultation-container .chat-main { min-height: 70dvh; }

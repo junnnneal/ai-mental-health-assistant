@@ -58,10 +58,14 @@ const summarizeArgs = (name: string, args: Record<string, unknown>): string => {
   return query !== undefined ? String(query) : "";
 };
 
-const scrollToBottom = async () => {
+//自动滚底：force=新消息直接贴底；流式更新只在用户本来就在底部附近才跟随，
+//避免上翻阅读思考过程时被逐块SSE拽回底部
+const scrollToBottom = async (force = false) => {
   await nextTick();
   const el = listRef.value;
-  if (el) el.scrollTop = el.scrollHeight;
+  if (!el) return;
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  if (force || nearBottom) el.scrollTop = el.scrollHeight;
 };
 
 const currentAssistant = (): ChatMsg | null => {
@@ -123,7 +127,7 @@ const send = async (text?: string) => {
   });
   messages.value.push(assistantMsg);
   streaming.value = true;
-  scrollToBottom();
+  scrollToBottom(true);
 
   // 带上最近10轮对话（只要正文，思考过程不回传）
   const history = messages.value
@@ -322,7 +326,9 @@ const stop = () => {
   --wash: #fdf7f3;
   display: flex;
   flex-direction: column;
-  min-height: calc(100dvh - 70px);
+  /*锁死高度而非min-height：chat-list 才会成为内部滚动容器，
+    流式时 scrollToBottom 才真正生效；页脚保持在页面最底 */
+  height: calc(100dvh - 70px);
   background:
     radial-gradient(
       circle at 88% 4%,
