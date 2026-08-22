@@ -8,7 +8,6 @@ import {
   Check,
   EditPen,
   Moon,
-  RefreshLeft,
   Sunny,
   Warning,
 } from "@element-plus/icons-vue";
@@ -97,6 +96,27 @@ const sleepLabel = computed(() => {
   return "需要补眠";
 });
 
+const scoreTone = (score: number, max: number) => {
+  const ratio = score / max;
+  if (ratio <= 0.2) {
+    return "score-muted";
+  }
+  if (ratio <= 0.4) {
+    return "score-cool";
+  }
+  if (ratio <= 0.6) {
+    return "score-warm";
+  }
+  if (ratio <= 0.8) {
+    return "score-bright";
+  }
+  return "score-vivid";
+};
+
+const moodScoreTone = computed(() => scoreTone(diaryForm.moodScore, 10));
+const sleepScoreTone = computed(() => scoreTone(diaryForm.sleepQuality, 5));
+const stressScoreTone = computed(() => scoreTone(diaryForm.stressLevel, 5));
+
 const selectEmotion = (emotion: string) => {
   diaryForm.dominantEmotion = emotion;
 };
@@ -129,119 +149,144 @@ const submitDiary = async () => {
 
 <template>
   <div class="emotionDiary-container">
-    <section class="header-section">
-      <div class="header-content">
-        <div class="header-icon">
+    <header class="page-intro">
+      <div class="intro-content">
+        <div class="intro-icon" aria-hidden="true">
           <el-icon><EditPen /></el-icon>
         </div>
         <div>
+          <span class="intro-kicker">每日自检</span>
           <h2>情绪日记</h2>
           <p>记录今天的情绪、触发因素和身体状态</p>
         </div>
       </div>
-      <div class="header-date">
-        <el-icon><Calendar /></el-icon>
-        {{ diaryForm.diaryDate }}
+      <div class="current-date" aria-label="当前记录日期">
+        <el-icon aria-hidden="true"><Calendar /></el-icon>
+        <div>
+          <span>记录日期</span>
+          <strong>{{ diaryForm.diaryDate }}</strong>
+        </div>
       </div>
-    </section>
+    </header>
 
     <main class="content">
-      <section class="diary-card">
-        <div class="title-row">
-          <div>
-            <h3 class="title">今日记录</h3>
-            <p class="subtitle">把复杂感受拆成几个清楚的线索</p>
+      <div class="diary-shell">
+        <section class="diary-surface" aria-labelledby="diary-form-title">
+          <div class="title-row">
+            <div>
+              <h3 id="diary-form-title" class="title">今日记录</h3>
+              <p class="subtitle">把复杂感受拆成几个清楚的线索</p>
+            </div>
           </div>
-          <el-button text :icon="RefreshLeft" @click="resetForm">
-            重置
-          </el-button>
-        </div>
 
-        <el-form
-          ref="formRef"
-          :model="diaryForm"
-          :rules="rules"
-          label-position="top"
-          class="detail-form"
-        >
-          <div class="form-grid">
-            <el-form-item label="记录日期" prop="diaryDate">
-              <el-date-picker
-                v-model="diaryForm.diaryDate"
-                type="date"
-                value-format="YYYY-MM-DD"
-                placeholder="选择日期"
-                class="full-control"
+          <el-form
+            ref="formRef"
+            :model="diaryForm"
+            :rules="rules"
+            label-position="top"
+            class="detail-form"
+          >
+          <div class="form-section form-section-first">
+            <div class="form-grid">
+              <el-form-item label="记录日期" prop="diaryDate">
+                <el-date-picker
+                  v-model="diaryForm.diaryDate"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  placeholder="选择日期"
+                  class="full-control"
+                />
+              </el-form-item>
+
+              <el-form-item label="情绪评分" prop="moodScore">
+                <div class="score-control">
+                  <el-slider
+                    v-model="diaryForm.moodScore"
+                    :min="1"
+                    :max="10"
+                  />
+                  <span>{{ diaryForm.moodScore }} / 10</span>
+                </div>
+              </el-form-item>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <el-form-item label="主要情绪" prop="dominantEmotion">
+              <div class="emotion-grid">
+                <button
+                  v-for="emotion in emotionOptions"
+                  :key="emotion.name"
+                  type="button"
+                  class="emotion-choice"
+                  :class="[
+                    emotion.tone,
+                    { selected: diaryForm.dominantEmotion === emotion.name },
+                  ]"
+                  :aria-pressed="diaryForm.dominantEmotion === emotion.name"
+                  @click="selectEmotion(emotion.name)"
+                >
+                  <el-icon
+                    v-if="diaryForm.dominantEmotion === emotion.name"
+                    aria-hidden="true"
+                  >
+                    <Check />
+                  </el-icon>
+                  <span>{{ emotion.name }}</span>
+                  <span class="emotion-dot" aria-hidden="true"></span>
+                </button>
+              </div>
+            </el-form-item>
+          </div>
+
+          <div class="form-section writing-section">
+            <el-form-item label="情绪触发因素" prop="emotionTriggers">
+              <el-input
+                v-model="diaryForm.emotionTriggers"
+                placeholder="例如：沟通、学习、工作、睡眠、关系变化"
+                maxlength="120"
+                show-word-limit
               />
             </el-form-item>
 
-            <el-form-item label="情绪评分" prop="moodScore">
-              <div class="score-control">
-                <el-slider v-model="diaryForm.moodScore" :min="1" :max="10" />
-                <span>{{ diaryForm.moodScore }} / 10</span>
-              </div>
+            <el-form-item label="今日感想" prop="diaryContent">
+              <el-input
+                v-model="diaryForm.diaryContent"
+                type="textarea"
+                :rows="6"
+                maxlength="800"
+                show-word-limit
+                resize="none"
+                placeholder="写下今天发生了什么，以及它让你产生了什么感受"
+              />
             </el-form-item>
           </div>
 
-          <el-form-item label="主要情绪" prop="dominantEmotion">
-            <div class="emotion-grid">
-              <button
-                v-for="emotion in emotionOptions"
-                :key="emotion.name"
-                type="button"
-                class="emotion-card"
-                :class="[
-                  emotion.tone,
-                  { selected: diaryForm.dominantEmotion === emotion.name },
-                ]"
-                @click="selectEmotion(emotion.name)"
-              >
-                <span class="emotion-dot"></span>
-                <span class="emotion-name">{{ emotion.name }}</span>
-              </button>
+          <section class="form-section wellbeing-section" aria-labelledby="wellbeing-title">
+            <div class="section-heading">
+              <h4 id="wellbeing-title">身体状态</h4>
+              <p>用直觉评分即可，不必追求精确</p>
             </div>
-          </el-form-item>
-
-          <el-form-item label="情绪触发因素" prop="emotionTriggers">
-            <el-input
-              v-model="diaryForm.emotionTriggers"
-              placeholder="例如：沟通、学习、工作、睡眠、关系变化"
-              maxlength="120"
-              show-word-limit
-            />
-          </el-form-item>
-
-          <el-form-item label="今日感想" prop="diaryContent">
-            <el-input
-              v-model="diaryForm.diaryContent"
-              type="textarea"
-              :rows="6"
-              maxlength="800"
-              show-word-limit
-              resize="none"
-              placeholder="写下今天发生了什么，以及它让你产生了什么感受"
-            />
-          </el-form-item>
-
-          <div class="life-indicators">
-            <div class="indicator-group">
-              <div class="indicator-heading">
-                <el-icon><Moon /></el-icon>
-                睡眠质量
+            <div class="life-indicators">
+              <div class="indicator-group">
+                <div class="indicator-heading">
+                  <el-icon aria-hidden="true"><Moon /></el-icon>
+                  睡眠质量
+                </div>
+                <el-rate v-model="diaryForm.sleepQuality" :max="5" />
               </div>
-              <el-rate v-model="diaryForm.sleepQuality" :max="5" />
-            </div>
-            <div class="indicator-group">
-              <div class="indicator-heading">
-                <el-icon><Sunny /></el-icon>
-                压力水平
+              <div class="indicator-group">
+                <div class="indicator-heading">
+                  <el-icon aria-hidden="true"><Sunny /></el-icon>
+                  压力水平
+                </div>
+                <el-rate v-model="diaryForm.stressLevel" :max="5" />
               </div>
-              <el-rate v-model="diaryForm.stressLevel" :max="5" />
             </div>
-          </div>
+          </section>
 
           <div class="action-buttons">
-            <el-button @click="resetForm">清空重写</el-button>
+            <el-button plain @click="resetForm">清空重写</el-button>
             <el-button
               type="primary"
               :icon="Check"
@@ -251,417 +296,916 @@ const submitDiary = async () => {
               保存日记
             </el-button>
           </div>
-        </el-form>
-      </section>
+          </el-form>
+        </section>
+      </div>
 
-      <aside class="summary-panel">
-        <div class="summary-score">
-          <div class="score-ring">
-            <span>{{ diaryForm.moodScore }}</span>
-            <small>情绪分</small>
+      <div class="summary-shell">
+        <aside class="summary-panel" aria-live="polite">
+          <div class="summary-heading">
+            <h3>今日状态</h3>
+            <p>根据你的填写实时更新</p>
           </div>
-          <div>
-            <h3>{{ moodLabel }}</h3>
+
+        <div class="mood-summary">
+          <div class="mood-score" :class="moodScoreTone">
+            <strong>{{ diaryForm.moodScore }}</strong>
+            <span>/ 10</span>
+          </div>
+          <div class="mood-copy">
+            <h4>{{ moodLabel }}</h4>
             <p>主要情绪：{{ diaryForm.dominantEmotion }}</p>
           </div>
         </div>
 
-        <div class="summary-list">
-          <div class="summary-item">
-            <div class="item-top">
-              <span class="item-icon"><el-icon><Moon /></el-icon></span>
-              <div class="item-title">
-                <span>{{ sleepLabel }}</span>
-                <p>睡眠质量</p>
+        <div class="metric-list">
+          <section
+            class="metric-item sleep-metric"
+            :class="sleepScoreTone"
+            aria-label="睡眠质量"
+          >
+            <div class="metric-topline">
+              <div class="metric-title">
+                <el-icon aria-hidden="true"><Moon /></el-icon>
+                <div>
+                  <span>睡眠质量</span>
+                  <p>{{ sleepLabel }}</p>
+                </div>
               </div>
-              <b>{{ diaryForm.sleepQuality }}<i>/ 5</i></b>
+              <strong>{{ diaryForm.sleepQuality }}<small>/ 5</small></strong>
             </div>
-            <div class="item-bar">
-              <i :style="{ width: (diaryForm.sleepQuality / 5) * 100 + '%' }"></i>
+            <div class="metric-scale" aria-hidden="true">
+              <span
+                v-for="step in 5"
+                :key="step"
+                :class="{ active: step <= diaryForm.sleepQuality }"
+              ></span>
             </div>
-          </div>
-          <div class="summary-item">
-            <div class="item-top">
-              <span class="item-icon"><el-icon><Warning /></el-icon></span>
-              <div class="item-title">
-                <span>{{ stressLabel }}</span>
-                <p>压力水平</p>
+          </section>
+
+          <section
+            class="metric-item stress-metric"
+            :class="stressScoreTone"
+            aria-label="压力水平"
+          >
+            <div class="metric-topline">
+              <div class="metric-title">
+                <el-icon aria-hidden="true"><Warning /></el-icon>
+                <div>
+                  <span>压力水平</span>
+                  <p>{{ stressLabel }}</p>
+                </div>
               </div>
-              <b>{{ diaryForm.stressLevel }}<i>/ 5</i></b>
+              <strong>{{ diaryForm.stressLevel }}<small>/ 5</small></strong>
             </div>
-            <div class="item-bar">
-              <i :style="{ width: (diaryForm.stressLevel / 5) * 100 + '%' }"></i>
+            <div class="metric-scale" aria-hidden="true">
+              <span
+                v-for="step in 5"
+                :key="step"
+                :class="{ active: step <= diaryForm.stressLevel }"
+              ></span>
             </div>
-          </div>
+          </section>
         </div>
 
-        <div class="gentle-note">
-          <div class="note-title">今日提醒</div>
-          <p>
-            如果情绪评分偏低或压力偏高，可以先减少任务密度，再处理最重要的一件事。
-          </p>
-        </div>
-      </aside>
+          <div class="gentle-note">
+            <div class="note-title">
+              <el-icon aria-hidden="true"><Warning /></el-icon>
+              今日提醒
+            </div>
+            <p>
+              如果情绪评分偏低或压力偏高，可以先减少任务密度，再处理最重要的一件事。
+            </p>
+          </div>
+        </aside>
+      </div>
     </main>
   </div>
 </template>
 
 <style scoped lang="scss">
 .emotionDiary-container {
-  min-height: calc(100vh - 120px);
-  background: linear-gradient(135deg, #fafbfc 0%, #fffaf3 52%, #f2f7f5 100%);
-  // 页面级左右留白：banner和内容列都在这个栅格里居中
-  padding: 0 28px;
-  .header-section {
-    background: linear-gradient(135deg, #22c55e 0%, #f59e0b 100%);
-    color: white;
-    padding: 34px 48px;
+  --diary-bg: #f1f5f2;
+  --diary-surface: #fbfcfb;
+  --diary-surface-soft: #e3ebe6;
+  --diary-text: #1f2924;
+  --diary-text-soft: #637168;
+  --diary-border: #d5e0d9;
+  --diary-accent: #3f6855;
+  --diary-accent-dark: #294b3c;
+  --diary-accent-soft: #dce9e1;
+
+  min-height: calc(100dvh - 120px);
+  padding: 0 clamp(16px, 3vw, 40px);
+  color: var(--diary-text);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(63, 104, 85, 0.1), transparent 28rem),
+    var(--diary-bg);
+  font-family:
+    "PingFang SC",
+    "Microsoft YaHei",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  position: relative;
+  isolation: isolate;
+
+  &::before {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    content: "";
+    pointer-events: none;
+    opacity: 0.5;
+    background:
+      radial-gradient(circle at 88% 32%, rgba(91, 128, 108, 0.08), transparent 18rem),
+      repeating-linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.14) 0,
+        rgba(255, 255, 255, 0.14) 1px,
+        transparent 1px,
+        transparent 7px
+      );
+  }
+
+  .page-intro {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 1260px;
+    margin: 0 auto;
+    padding: 38px 8px 30px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    box-shadow: 0 10px 30px rgba(34, 197, 94, 0.12);
-    // 四角全圆的浮动卡片：与下方内容列同宽居中，边缘落在同一栅格上
-    // box-sizing必须显式补：项目没引base.css，全局无border-box，
-    // 默认content-box会把48px侧padding加在max-width外，外宽变1376与内容列错位
-    box-sizing: border-box;
-    margin: 20px auto 0;
-    max-width: 1280px;
-    border-radius: 24px;
-    .header-content {
+
+    .intro-content {
       display: flex;
       align-items: center;
-      gap: 14px;
-      .header-icon {
-        width: 52px;
-        height: 52px;
-        border-radius: 14px;
-        background: rgba(255, 255, 255, 0.22);
+      gap: 16px;
+
+      .intro-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 15px;
+        color: #f7faf8;
+        background: var(--diary-accent);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 24px;
+        font-size: 23px;
+        box-shadow: 0 12px 26px rgba(41, 75, 60, 0.18);
       }
+
       h2 {
         margin: 0;
-        font-size: 28px;
-        font-weight: 800;
+        color: var(--diary-text);
+        font-size: clamp(27px, 3vw, 34px);
+        font-weight: 750;
+        line-height: 1.15;
+        letter-spacing: -0.035em;
+        text-wrap: balance;
       }
+
+      .intro-kicker {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        margin-bottom: 8px;
+        padding: 3px 9px;
+        color: var(--diary-accent-dark);
+        border: 1px solid rgba(63, 104, 85, 0.16);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.54);
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 0.16em;
+      }
+
       p {
-        margin-top: 4px;
+        max-width: 36rem;
+        margin-top: 7px;
+        color: var(--diary-text-soft);
         font-size: 14px;
-        opacity: 0.92;
+        line-height: 1.6;
+        text-wrap: pretty;
       }
     }
-    .header-date {
+
+    .current-date {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      background: rgba(255, 255, 255, 0.18);
-      border: 1px solid rgba(255, 255, 255, 0.28);
-      border-radius: 999px;
-      padding: 8px 14px;
+      gap: 12px;
+      min-width: 170px;
+      padding-left: 24px;
+      border-left: 1px solid var(--diary-border);
+      color: var(--diary-accent-dark);
+
+      > .el-icon {
+        font-size: 20px;
+      }
+
+      span {
+        display: block;
+        color: var(--diary-text-soft);
+        font-size: 12px;
+        line-height: 1.2;
+      }
+
+      strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.2;
+        letter-spacing: 0.02em;
+        font-variant-numeric: tabular-nums;
+      }
     }
   }
+
   .content {
     width: 100%;
-    // 限宽居中：今日记录收窄，仪表盘离开屏幕右缘
-    max-width: 1280px;
+    max-width: 1260px;
     margin: 0 auto;
-    padding: 24px 0 36px;
+    padding: 0 0 48px;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 20px;
-    // start是sticky生效的前提：grid默认stretch会把子项拉满整行高度，
-    // 拉满后没有富余空间，position:sticky就不会动
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: clamp(22px, 3vw, 34px);
     align-items: start;
-    .diary-card,
-    .summary-panel {
-      background: rgba(255, 255, 255, 0.96);
-      border-radius: 16px;
-      border: 1px solid rgba(245, 158, 11, 0.1);
+
+    .diary-shell,
+    .summary-shell {
+      padding: 6px;
+      border: 1px solid rgba(63, 104, 85, 0.14);
+      border-radius: 28px;
+      background: rgba(232, 240, 235, 0.58);
       box-shadow:
-        0 12px 36px rgba(251, 146, 60, 0.08),
-        0 4px 14px rgba(15, 23, 42, 0.04);
+        0 26px 70px rgba(34, 61, 49, 0.07),
+        inset 0 1px 0 rgba(255, 255, 255, 0.74);
     }
-    .diary-card {
-      padding: 24px;
+
+    .diary-shell {
+      animation: diary-rise 720ms cubic-bezier(0.32, 0.72, 0, 1) both;
+    }
+
+    .summary-shell {
+      position: sticky;
+      top: 20px;
+      animation: diary-rise 820ms 80ms cubic-bezier(0.32, 0.72, 0, 1) both;
+    }
+
+    .diary-surface {
+      padding: clamp(22px, 3vw, 34px);
+      border: 1px solid var(--diary-border);
+      border-radius: 22px;
+      background: rgba(251, 252, 251, 0.96);
+      box-shadow:
+        0 18px 44px rgba(34, 61, 49, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
       .title-row {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        margin-bottom: 22px;
+        margin-bottom: 26px;
+
         .title {
           margin: 0;
-          font-size: 22px;
-          font-weight: 800;
-          color: #1f2937;
+          color: var(--diary-text);
+          font-size: 23px;
+          font-weight: 720;
+          line-height: 1.25;
+          letter-spacing: -0.025em;
         }
+
         .subtitle {
-          margin-top: 4px;
-          font-size: 13px;
-          color: #78716c;
-        }
-      }
-      .detail-form {
-        :deep(.el-form-item__label) {
-          color: #374151;
-          font-weight: 700;
-          line-height: 1.2;
-          margin-bottom: 8px;
-        }
-        :deep(.el-input__wrapper),
-        :deep(.el-textarea__inner) {
-          border-radius: 8px;
-          box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.24) inset;
-        }
-        :deep(.el-input__wrapper.is-focus),
-        :deep(.el-textarea__inner:focus) {
-          box-shadow: 0 0 0 1px #f59e0b inset;
-        }
-        .form-grid {
-          display: grid;
-          grid-template-columns: 260px minmax(0, 1fr);
-          gap: 18px;
-        }
-        .full-control {
-          width: 100%;
-        }
-        .score-control {
-          width: 100%;
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) 70px;
-          gap: 14px;
-          align-items: center;
-          span {
-            font-size: 13px;
-            font-weight: 700;
-            color: #f59e0b;
-            text-align: right;
-          }
-        }
-        .emotion-grid {
-          width: 100%;
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 10px;
-          .emotion-card {
-            min-height: 58px;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 10px 12px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-            background: #f9fafb;
-            transition: all 0.2s ease;
-            .emotion-dot {
-              width: 12px;
-              height: 12px;
-              border-radius: 50%;
-              background: #94a3b8;
-              flex-shrink: 0;
-            }
-            .emotion-name {
-              color: #374151;
-              font-weight: 700;
-            }
-            &.calm .emotion-dot {
-              background: #38bdf8;
-            }
-            &.bright .emotion-dot {
-              background: #facc15;
-            }
-            &.fresh .emotion-dot {
-              background: #22c55e;
-            }
-            &.muted .emotion-dot {
-              background: #94a3b8;
-            }
-            &.warm .emotion-dot {
-              background: #fb923c;
-            }
-            &.soft .emotion-dot {
-              background: #a78bfa;
-            }
-            &.alert .emotion-dot {
-              background: #f43f5e;
-            }
-            &.green .emotion-dot {
-              background: #10b981;
-            }
-            &.selected {
-              border-color: #f59e0b;
-              background: #fff7ed;
-              box-shadow: 0 6px 16px rgba(245, 158, 11, 0.12);
-              transform: translateY(-1px);
-            }
-          }
-        }
-        .life-indicators {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 16px;
-          margin-top: 8px;
-          .indicator-group {
-            border: 1px solid rgba(148, 163, 184, 0.18);
-            border-radius: 10px;
-            padding: 14px;
-            background: #fbfcfb;
-            .indicator-heading {
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              margin-bottom: 10px;
-              color: #374151;
-              font-weight: 700;
-            }
-          }
-        }
-        .action-buttons {
-          margin-top: 24px;
-          display: flex;
-          justify-content: flex-end;
-          gap: 12px;
-        }
-      }
-    }
-    .summary-panel {
-      padding: 24px;
-      // 自然高度 + 吸顶：卡片多高就多高，下滑时钉在视口顶部跟随，
-      // 右侧始终有内容（不再等高拉伸、也不再滑走缺块）
-      position: sticky;
-      top: 18px;
-      .summary-score {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        padding-bottom: 20px;
-        border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-        .score-ring {
-          width: 100px;
-          height: 100px;
-          border-radius: 50%;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          background:
-            radial-gradient(circle at center, #fff 58%, transparent 60%),
-            conic-gradient(#22c55e 0%, #facc15 48%, #fb7185 100%);
-          color: #7c2d12;
-          flex-shrink: 0;
-          span {
-            font-size: 30px;
-            line-height: 1;
-            font-weight: 800;
-          }
-          small {
-            margin-top: 4px;
-            color: #8b7355;
-          }
-        }
-        h3 {
-          font-size: 20px;
-          font-weight: 800;
-          color: #1f2937;
-          margin-bottom: 4px;
-        }
-        p {
-          color: #78716c;
-          font-size: 13px;
-        }
-      }
-      .summary-list {
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-        padding: 20px 0;
-        .summary-item {
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          border-radius: 12px;
-          padding: 14px;
-          background: #fbfcfb;
-          .item-top {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            .item-icon {
-              width: 36px;
-              height: 36px;
-              border-radius: 10px;
-              flex-shrink: 0;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 17px;
-              color: #f59e0b;
-              background: #fff7ed;
-            }
-            .item-title {
-              flex: 1;
-              min-width: 0;
-              span {
-                display: block;
-                color: #374151;
-                font-weight: 700;
-                font-size: 15px;
-              }
-              p {
-                margin-top: 2px;
-                color: #78716c;
-                font-size: 12px;
-              }
-            }
-            b {
-              font-size: 20px;
-              font-weight: 800;
-              color: #1f2937;
-              i {
-                font-style: normal;
-                font-size: 12px;
-                color: #a8a29e;
-                margin-left: 2px;
-              }
-            }
-          }
-          .item-bar {
-            margin-top: 12px;
-            height: 6px;
-            border-radius: 999px;
-            background: rgba(148, 163, 184, 0.2);
-            overflow: hidden;
-            i {
-              display: block;
-              height: 100%;
-              border-radius: inherit;
-              background: linear-gradient(90deg, #22c55e 0%, #f59e0b 100%);
-              transition: width 0.3s ease;
-            }
-          }
-        }
-      }
-      .gentle-note {
-        // 紧跟指标卡片自然排列；等高拉伸的留白留在卡片底部，
-        // 比把提醒顶到底、中间空一大块更自然
-        border-radius: 12px;
-        background: linear-gradient(135deg, #fff7ed 0%, #f0fdf4 100%);
-        border: 1px solid rgba(245, 158, 11, 0.14);
-        padding: 16px;
-        .note-title {
-          color: #92400e;
-          font-weight: 800;
-          margin-bottom: 6px;
-        }
-        p {
-          color: #6b5b47;
+          max-width: 38rem;
+          margin-top: 7px;
+          color: var(--diary-text-soft);
           font-size: 13px;
           line-height: 1.6;
         }
       }
+
+      .detail-form {
+        :deep(.el-form-item__label) {
+          height: auto;
+          margin-bottom: 9px;
+          color: #304039;
+          font-size: 14px;
+          font-weight: 650;
+          line-height: 1.25;
+        }
+
+        :deep(.el-form-item) {
+          margin-bottom: 0;
+        }
+
+        :deep(.el-input__wrapper),
+        :deep(.el-textarea__inner) {
+          color: var(--diary-text);
+          border-radius: 10px;
+          background: #f7faf8;
+          box-shadow: 0 0 0 1px #d2ddd6 inset;
+          transition:
+            background-color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+            box-shadow 180ms cubic-bezier(0.32, 0.72, 0, 1);
+        }
+
+        :deep(.el-input__wrapper) {
+          min-height: 44px;
+        }
+
+        :deep(.el-textarea__inner) {
+          padding: 13px 15px;
+          line-height: 1.75;
+        }
+
+        :deep(.el-input__inner::placeholder),
+        :deep(.el-textarea__inner::placeholder) {
+          color: #718078;
+        }
+
+        :deep(.el-input__wrapper:hover),
+        :deep(.el-textarea__inner:hover) {
+          background: #ffffff;
+          box-shadow: 0 0 0 1px #b3c7ba inset;
+        }
+
+        :deep(.el-input__wrapper.is-focus),
+        :deep(.el-textarea__inner:focus) {
+          background: #ffffff;
+          box-shadow: 0 0 0 2px var(--diary-accent) inset;
+        }
+
+        :deep(.el-form-item.is-error .el-input__wrapper),
+        :deep(.el-form-item.is-error .el-textarea__inner) {
+          box-shadow: 0 0 0 1px var(--el-color-danger) inset;
+        }
+
+        :deep(.el-input__count) {
+          color: #748078;
+          background: transparent;
+        }
+
+        :deep(.el-slider) {
+          --el-slider-main-bg-color: var(--diary-accent);
+          --el-slider-runway-bg-color: #d5e0d9;
+          --el-slider-stop-bg-color: #d5e0d9;
+          --el-slider-button-size: 17px;
+        }
+
+        :deep(.el-slider__button) {
+          border-color: var(--diary-accent);
+        }
+
+        :deep(.el-rate) {
+          --el-rate-fill-color: var(--diary-accent);
+          --el-rate-void-color: #becdc3;
+          --el-rate-icon-size: 24px;
+          height: 30px;
+        }
+
+        :deep(.el-button) {
+          min-width: 108px;
+          height: 44px;
+          margin-left: 0;
+          border-radius: 10px;
+          font-weight: 650;
+          transition:
+            color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+            border-color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+            background-color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+            transform 180ms cubic-bezier(0.32, 0.72, 0, 1);
+        }
+
+        :deep(.el-button:not(.el-button--primary)) {
+          color: #3b5045;
+          border-color: #c3d2c8;
+          background: transparent;
+        }
+
+        :deep(.el-button:not(.el-button--primary):hover) {
+          color: var(--diary-accent-dark);
+          border-color: #97b19f;
+          background: var(--diary-accent-soft);
+        }
+
+        :deep(.el-button--primary) {
+          border-color: var(--diary-accent);
+          background: var(--diary-accent);
+        }
+
+        :deep(.el-button--primary:hover),
+        :deep(.el-button--primary:focus-visible) {
+          border-color: var(--diary-accent-dark);
+          background: var(--diary-accent-dark);
+        }
+
+        :deep(.el-button:active) {
+          transform: translateY(1px) scale(0.99);
+        }
+
+        .form-section {
+          padding: 24px 0;
+          border-top: 1px solid var(--diary-border);
+
+          &.form-section-first {
+            padding-top: 0;
+            border-top: 0;
+          }
+        }
+
+        .form-grid {
+          display: grid;
+          grid-template-columns: minmax(220px, 0.7fr) minmax(320px, 1.3fr);
+          gap: 22px;
+        }
+
+        .full-control {
+          width: 100%;
+        }
+
+        .score-control {
+          width: 100%;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 64px;
+          gap: 16px;
+          align-items: center;
+
+          span {
+            font-size: 13px;
+            font-weight: 750;
+            color: var(--diary-accent-dark);
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+          }
+        }
+
+        .emotion-grid {
+          width: 100%;
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 9px;
+
+          .emotion-choice {
+            min-height: 52px;
+            padding: 10px 13px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 10px;
+            color: #445149;
+            font: inherit;
+            font-size: 14px;
+            font-weight: 650;
+            text-align: left;
+            cursor: pointer;
+            border: 1px solid #d5ddd8;
+            border-radius: 10px;
+            background: #f8faf8;
+            transition:
+              color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+              border-color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+              background-color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+              transform 180ms cubic-bezier(0.32, 0.72, 0, 1);
+
+            .emotion-dot {
+              width: 10px;
+              height: 10px;
+              flex: 0 0 auto;
+              border-radius: 50%;
+              background: var(--emotion-color);
+              box-shadow: 0 0 0 4px var(--emotion-tint);
+              transition:
+                transform 420ms cubic-bezier(0.32, 0.72, 0, 1),
+                box-shadow 420ms cubic-bezier(0.32, 0.72, 0, 1);
+            }
+
+            &.calm {
+              --emotion-color: #23889a;
+              --emotion-tint: #d4eef2;
+              --emotion-selected: #e7f7f9;
+              --emotion-ink: #176572;
+            }
+
+            &.bright {
+              --emotion-color: #c28d3f;
+              --emotion-tint: #f7ecd8;
+              --emotion-selected: #fcf5e8;
+              --emotion-ink: #8e672e;
+            }
+
+            &.fresh {
+              --emotion-color: #3ba766;
+              --emotion-tint: #d6f0df;
+              --emotion-selected: #e8f8ed;
+              --emotion-ink: #287343;
+            }
+
+            &.muted {
+              --emotion-color: #96958d;
+              --emotion-tint: #ecece8;
+              --emotion-selected: #f5f5f2;
+              --emotion-ink: #6d6d67;
+            }
+
+            &.warm {
+              --emotion-color: #b87660;
+              --emotion-tint: #f5e6e0;
+              --emotion-selected: #fbefeb;
+              --emotion-ink: #8f5747;
+            }
+
+            &.soft {
+              --emotion-color: #8b7ba1;
+              --emotion-tint: #eeeaf4;
+              --emotion-selected: #f6f3fa;
+              --emotion-ink: #69587f;
+            }
+
+            &.alert {
+              --emotion-color: #aa6976;
+              --emotion-tint: #f3e6ea;
+              --emotion-selected: #faeff2;
+              --emotion-ink: #884f5d;
+            }
+
+            &.green {
+              --emotion-color: #cf7c23;
+              --emotion-tint: #f6e5ce;
+              --emotion-selected: #fff2df;
+              --emotion-ink: #925c18;
+            }
+
+            &:hover {
+              color: var(--emotion-ink);
+              border-color: var(--emotion-color);
+              background: var(--emotion-selected);
+
+              .emotion-dot {
+                transform: scale(1.18);
+                box-shadow: 0 0 0 5px var(--emotion-tint);
+              }
+            }
+
+            &:focus-visible {
+      outline: 3px solid rgba(63, 104, 85, 0.22);
+              outline-offset: 2px;
+            }
+
+            &:active {
+              transform: translateY(1px) scale(0.99);
+            }
+
+            &.selected {
+              color: var(--emotion-ink);
+              border-color: var(--emotion-color);
+              background: var(--emotion-selected);
+              box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.78),
+                0 8px 18px var(--emotion-tint);
+
+              .emotion-dot {
+                transform: scale(1.16);
+                box-shadow: 0 0 0 5px var(--emotion-tint);
+              }
+            }
+
+            .el-icon {
+              flex: 0 0 auto;
+              color: var(--emotion-color);
+              font-size: 15px;
+            }
+
+            .emotion-dot {
+              margin-left: auto;
+            }
+          }
+        }
+
+        .writing-section {
+          display: grid;
+          gap: 22px;
+        }
+
+        .section-heading {
+          margin-bottom: 16px;
+
+          h4 {
+            color: var(--diary-text);
+            font-size: 15px;
+            font-weight: 700;
+            line-height: 1.3;
+          }
+
+          p {
+            margin-top: 5px;
+            color: var(--diary-text-soft);
+            font-size: 12px;
+            line-height: 1.5;
+          }
+        }
+
+        .life-indicators {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0;
+          padding: 4px 0;
+
+          .indicator-group {
+            min-width: 0;
+
+            &:last-child {
+              padding-left: 28px;
+              border-left: 1px solid var(--diary-border);
+            }
+
+            .indicator-heading {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              margin-bottom: 12px;
+              color: #3d4942;
+              font-size: 14px;
+              font-weight: 650;
+
+              .el-icon {
+                color: var(--diary-accent);
+                font-size: 17px;
+              }
+            }
+          }
+        }
+
+        .action-buttons {
+          padding-top: 26px;
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+          border-top: 1px solid var(--diary-border);
+        }
+      }
     }
+
+    .summary-panel {
+      position: static;
+      padding: 26px;
+      border: 1px solid #d1ddd5;
+      border-radius: 22px;
+      background: var(--diary-surface);
+
+      .score-muted {
+        --score-color: #8999a6;
+        --score-track: #dce5ea;
+        --score-glow: rgba(137, 153, 166, 0.2);
+      }
+
+      .score-cool {
+        --score-color: #4c88b4;
+        --score-track: #d2e4ef;
+        --score-glow: rgba(76, 136, 180, 0.2);
+      }
+
+      .score-warm {
+        --score-color: #bd8a3d;
+        --score-track: #f0e3c9;
+        --score-glow: rgba(189, 138, 61, 0.2);
+      }
+
+      .score-bright {
+        --score-color: #3e9d69;
+        --score-track: #d3ecdc;
+        --score-glow: rgba(62, 157, 105, 0.22);
+      }
+
+      .score-vivid {
+        --score-color: #15966b;
+        --score-track: #c9eadb;
+        --score-glow: rgba(21, 150, 107, 0.26);
+      }
+
+      .stress-metric.score-muted {
+        --score-color: #5b9a72;
+        --score-track: #d7eddf;
+        --score-glow: rgba(91, 154, 114, 0.2);
+      }
+
+      .stress-metric.score-cool {
+        --score-color: #82a75a;
+        --score-track: #e1ecd4;
+        --score-glow: rgba(130, 167, 90, 0.2);
+      }
+
+      .stress-metric.score-warm {
+        --score-color: #c2933e;
+        --score-track: #f1e5cb;
+        --score-glow: rgba(194, 147, 62, 0.2);
+      }
+
+      .stress-metric.score-bright {
+        --score-color: #db7b3f;
+        --score-track: #f6dfd1;
+        --score-glow: rgba(219, 123, 63, 0.22);
+      }
+
+      .stress-metric.score-vivid {
+        --score-color: #d34d58;
+        --score-track: #f3d5d9;
+        --score-glow: rgba(211, 77, 88, 0.26);
+      }
+
+      .summary-heading {
+        h3 {
+          color: var(--diary-text);
+          font-size: 18px;
+          font-weight: 720;
+          line-height: 1.3;
+          letter-spacing: -0.02em;
+        }
+
+        p {
+          margin-top: 5px;
+          color: var(--diary-text-soft);
+          font-size: 12px;
+          line-height: 1.5;
+        }
+      }
+
+      .mood-summary {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 26px 0 24px;
+
+        .mood-score {
+          width: 92px;
+          height: 96px;
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 18px;
+          color: #f5f8f6;
+          background: var(--score-color);
+          box-shadow: 0 14px 28px var(--score-glow);
+          font-variant-numeric: tabular-nums;
+          transition:
+            background-color 420ms cubic-bezier(0.32, 0.72, 0, 1),
+            box-shadow 420ms cubic-bezier(0.32, 0.72, 0, 1);
+
+          strong {
+            font-size: 36px;
+            font-weight: 750;
+            line-height: 1;
+            letter-spacing: -0.05em;
+          }
+
+          span {
+            margin-left: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            opacity: 0.78;
+          }
+        }
+
+        .mood-copy {
+          min-width: 0;
+
+          h4 {
+            color: var(--diary-text);
+            font-size: 18px;
+            font-weight: 720;
+            line-height: 1.3;
+          }
+
+          p {
+            margin-top: 6px;
+            color: var(--diary-text-soft);
+            font-size: 12px;
+            line-height: 1.5;
+            word-break: break-word;
+          }
+        }
+      }
+
+      .metric-list {
+        border-top: 1px solid #cbd8d0;
+
+        .metric-item {
+          padding: 20px 0;
+          border-bottom: 1px solid #cbd8d0;
+
+          .metric-topline {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+
+            .metric-title {
+              display: flex;
+              align-items: center;
+              gap: 10px;
+
+              > .el-icon {
+                flex: 0 0 auto;
+                color: var(--score-color);
+                font-size: 18px;
+                transition: color 420ms cubic-bezier(0.32, 0.72, 0, 1);
+              }
+
+              span {
+                display: block;
+                color: #344139;
+                font-size: 13px;
+                font-weight: 680;
+                line-height: 1.3;
+              }
+
+              p {
+                margin-top: 4px;
+                color: var(--diary-text-soft);
+                font-size: 12px;
+                line-height: 1.3;
+              }
+            }
+
+            > strong {
+              color: var(--diary-text);
+              font-size: 20px;
+              font-weight: 750;
+              font-variant-numeric: tabular-nums;
+
+              small {
+                margin-left: 3px;
+                color: var(--diary-text-soft);
+                font-size: 11px;
+                font-weight: 600;
+              }
+            }
+          }
+
+          .metric-scale {
+            margin-top: 14px;
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 6px;
+
+            span {
+              height: 5px;
+              border-radius: 2px;
+              background: var(--score-track);
+              transition:
+                background-color 220ms cubic-bezier(0.32, 0.72, 0, 1),
+                transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+
+              &.active {
+                background: var(--score-color);
+                transform: scaleY(1.35);
+              }
+            }
+          }
+        }
+      }
+
+      .gentle-note {
+        padding-top: 22px;
+
+        .note-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 8px;
+          color: var(--diary-accent-dark);
+          font-size: 13px;
+          font-weight: 700;
+
+          .el-icon {
+            font-size: 16px;
+          }
+        }
+
+        p {
+          max-width: 30ch;
+          color: #58665e;
+          font-size: 13px;
+          line-height: 1.7;
+          text-wrap: pretty;
+        }
+      }
+    }
+  }
+}
+
+@keyframes diary-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -669,36 +1213,139 @@ const submitDiary = async () => {
   .emotionDiary-container {
     .content {
       grid-template-columns: 1fr;
+
+      .summary-shell {
+        position: static;
+      }
+
+      .summary-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 0.8fr) minmax(300px, 1.2fr);
+        column-gap: 34px;
+
+        .summary-heading,
+        .gentle-note {
+          grid-column: 1 / -1;
+        }
+
+        .metric-list {
+          border-top: 0;
+        }
+
+        .gentle-note p {
+          max-width: 58ch;
+        }
+      }
     }
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .emotionDiary-container {
-    .header-section {
-      padding: 24px 20px;
+    padding: 0 14px;
+
+    .page-intro {
+      padding: 26px 4px 22px;
       align-items: flex-start;
       flex-direction: column;
-      gap: 14px;
-    }
-    .content {
-      padding: 16px 0;
-      .diary-card {
-        padding: 18px;
-        .title-row {
-          gap: 12px;
-          flex-direction: column;
+      gap: 20px;
+
+      .intro-content {
+        align-items: flex-start;
+
+        .intro-icon {
+          width: 44px;
+          height: 44px;
+          border-radius: 13px;
+          font-size: 20px;
         }
+      }
+
+      .current-date {
+        width: 100%;
+        min-width: 0;
+        padding: 16px 0 0;
+        border-top: 1px solid var(--diary-border);
+        border-left: 0;
+      }
+    }
+
+    .content {
+      padding-bottom: 28px;
+      gap: 16px;
+
+      .diary-surface {
+        padding: 20px 16px;
+        border-radius: 18px;
+
+        .title-row {
+          margin-bottom: 22px;
+        }
+
         .detail-form {
           .form-grid,
           .life-indicators {
             grid-template-columns: 1fr;
           }
+
+          .form-grid {
+            gap: 22px;
+          }
+
           .emotion-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
+
+          .life-indicators {
+            .indicator-group:last-child {
+              margin-top: 18px;
+              padding: 18px 0 0;
+              border-top: 1px solid var(--diary-border);
+              border-left: 0;
+            }
+          }
+
+          .action-buttons {
+            gap: 9px;
+
+            :deep(.el-button) {
+              flex: 1;
+              min-width: 0;
+            }
+
+            :deep(.el-button--primary) {
+              flex: 1.35;
+            }
+          }
         }
       }
+
+      .summary-panel {
+        padding: 22px 20px;
+        border-radius: 18px;
+        display: block;
+
+        .metric-list {
+          border-top: 1px solid #cbd8d0;
+        }
+
+        .gentle-note p {
+          max-width: none;
+        }
+      }
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emotionDiary-container {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
     }
   }
 }

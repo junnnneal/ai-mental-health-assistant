@@ -116,7 +116,11 @@ const send = async (text?: string) => {
   //必须用reactive包装：SSE回调直接改segments才会触发视图更新，
   //普通对象push进响应式数组后闭包持有的仍是原始对象，改它不重渲染——
   //症状就是整段答案在流结束时一次性出现（不是流式）
-  const assistantMsg = reactive<ChatMsg>({ role: "assistant", content: "", segments: [] });
+  const assistantMsg = reactive<ChatMsg>({
+    role: "assistant",
+    content: "",
+    segments: [],
+  });
   messages.value.push(assistantMsg);
   streaming.value = true;
   scrollToBottom();
@@ -240,17 +244,24 @@ const stop = () => {
             >
               <template v-if="seg.kind === 'thought'">
                 <div class="thought-head">
-                  <span class="thought-icon">{{ TOOL_META[seg.toolName]?.icon ?? "🛠" }}</span>
+                  <span class="thought-icon">{{
+                    TOOL_META[seg.toolName]?.icon ?? "🛠"
+                  }}</span>
                   <span class="thought-label">
                     {{ TOOL_META[seg.toolName]?.label ?? seg.toolName }}
                   </span>
-                  <span v-if="summarizeArgs(seg.toolName, seg.args)" class="thought-arg">
+                  <span
+                    v-if="summarizeArgs(seg.toolName, seg.args)"
+                    class="thought-arg"
+                  >
                     「{{ summarizeArgs(seg.toolName, seg.args) }}」
                   </span>
                   <span v-if="seg.running" class="spinner"></span>
                   <span v-else class="thought-done">✓</span>
                 </div>
-                <pre v-if="seg.result" class="thought-result">{{ seg.result }}</pre>
+                <pre v-if="seg.result" class="thought-result">{{
+                  seg.result
+                }}</pre>
               </template>
               <!-- 回答段落 -->
               <pre v-else class="answer-text">{{ seg.text }}</pre>
@@ -258,7 +269,11 @@ const stop = () => {
           </template>
           <pre v-else class="answer-text">{{ msg.content }}</pre>
           <div
-            v-if="msg.role === 'assistant' && streaming && idx === messages.length - 1"
+            v-if="
+              msg.role === 'assistant' &&
+              streaming &&
+              idx === messages.length - 1
+            "
             class="cursor"
           >
             ▌
@@ -300,30 +315,43 @@ const stop = () => {
 
 <style scoped lang="scss">
 .butler-page {
+  --ink: #3d2e27;
+  --muted: #846a5d;
+  --line: rgba(173, 87, 42, 0.2);
+  --surface: #ffffff;
+  --wash: #fdf7f3;
   display: flex;
   flex-direction: column;
-  // 外层布局没有高度链，100%会塌：直接按视口算，扣掉导航栏(50px图+上下padding10px)
-  height: calc(100vh - 70px);
-  min-height: 560px;
-  background: #fffaf0;
+  min-height: calc(100dvh - 70px);
+  background:
+    radial-gradient(
+      circle at 88% 4%,
+      rgba(225, 180, 149, 0.42),
+      transparent 32%
+    ),
+    var(--wash);
+  color: var(--ink);
 }
 
 .butler-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 28px;
-  border-bottom: 1px solid #f3e3c9;
+  padding: clamp(1rem, 3vw, 1.7rem) 170.5px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
 
   h1 {
     margin: 0;
-    font-size: 20px;
-    color: #8b5e20;
+    font-size: clamp(1.2rem, 2vw, 1.65rem);
+    letter-spacing: -0.03em;
+    color: var(--ink);
   }
   p {
-    margin: 4px 0 0;
-    font-size: 13px;
-    color: #b08d57;
+    max-width: 52ch;
+    margin: 0.35rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted);
   }
 }
 
@@ -331,12 +359,13 @@ const stop = () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: #fff;
-  border: 1px solid #f59e0b;
-  font-size: 13px;
-  color: #b45309;
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--line);
+  font-size: 0.76rem;
+  color: #93451f;
+  font-weight: 650;
 
   .dot {
     width: 8px;
@@ -345,7 +374,7 @@ const stop = () => {
     background: #22c55e;
 
     &.busy {
-      background: #f59e0b;
+      background: #ba632e;
       animation: pulse 0.9s infinite;
     }
   }
@@ -361,7 +390,9 @@ const stop = () => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 28px;
+  width: min(920px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: clamp(1.3rem, 4vw, 2.5rem) 0;
 }
 
 .empty-state {
@@ -370,79 +401,104 @@ const stop = () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 0.7rem;
+  padding: 2rem 1rem;
+  text-align: center;
 
   .empty-icon {
-    font-size: 52px;
+    display: grid;
+    place-items: center;
+    width: 4.4rem;
+    height: 4.4rem;
+    margin-bottom: 0.6rem;
+    border-radius: 1.35rem;
+    background: #f7e8de;
+    color: #9f4b25;
+    font-size: 2.2rem;
+    filter: saturate(0.7);
   }
   h3 {
     margin: 0;
-    color: #8b5e20;
+    color: var(--ink);
+    letter-spacing: -0.025em;
   }
   p {
-    margin: 0 0 16px;
-    color: #b08d57;
-    font-size: 14px;
+    max-width: 36rem;
+    margin: 0 0 1.1rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.65;
   }
 }
 
 .suggestions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.65rem;
 
   .suggestion-chip {
-    padding: 10px 18px;
-    border-radius: 999px;
-    border: 1px solid #fb923c;
-    background: #fff;
-    color: #c2561a;
-    font-size: 14px;
+    width: min(100%, 34rem);
+    padding: 0.75rem 1rem;
+    border-radius: 0.9rem;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.86);
+    color: #9f4b25;
+    font-size: 0.82rem;
+    text-align: left;
     cursor: pointer;
-    transition: all 0.2s;
+    transition:
+      transform 240ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 240ms cubic-bezier(0.32, 0.72, 0, 1),
+      border-color 240ms cubic-bezier(0.32, 0.72, 0, 1);
 
     &:hover {
-      background: #fff4e6;
-      transform: translateY(-1px);
+      background: #fff;
+      border-color: rgba(183, 89, 44, 0.55);
+      transform: translateX(4px);
+    }
+    &:focus-visible {
+      outline: 3px solid rgba(183, 89, 44, 0.25);
+      outline-offset: 2px;
     }
   }
 }
 
 .msg-row {
   display: flex;
-  gap: 10px;
-  margin-bottom: 18px;
+  gap: 0.75rem;
+  margin-bottom: 1.15rem;
+  animation: message-in 420ms cubic-bezier(0.32, 0.72, 0, 1) both;
 
   .avatar {
     flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: #fff;
-    border: 1px solid #f0dcc0;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 0.8rem;
+    background: #f8ebe3;
+    border: 1px solid rgba(183, 89, 44, 0.16);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 1rem;
   }
 
   &.user {
     flex-direction: row-reverse;
 
     .bubble {
-      background: #fb923c;
+      background: #b7592c;
       color: #fff;
-      border-radius: 14px 2px 14px 14px;
+      border-radius: 1rem 0.3rem 1rem 1rem;
     }
   }
 
   .bubble {
-    max-width: 78%;
-    padding: 12px 16px;
-    border-radius: 2px 14px 14px 14px;
-    background: #fff;
-    border: 1px solid #f0dcc0;
-    box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
+    max-width: min(78%, 46rem);
+    padding: 0.9rem 1.05rem;
+    border-radius: 0.3rem 1rem 1rem 1rem;
+    background: var(--surface);
+    border: 1px solid #ead4c7;
+    box-shadow: 0 12px 28px rgba(92, 48, 29, 0.07);
 
     &.error {
       border-color: #fca5a5;
@@ -458,24 +514,24 @@ const stop = () => {
 .answer-text {
   margin: 0;
   font-family: inherit;
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 0.9rem;
+  line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #4b3a28;
+  color: #3d2e27;
 }
 
 .thought-card {
   margin-bottom: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: #fff9e6;
-  border: 1px dashed #facc15;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.8rem;
+  background: var(--surface);
+  border: 1px dashed #cf8a62;
 
   &.running {
     border-style: solid;
-    border-color: #fb923c;
-    background: #fff4e6;
+    border-color: #b7592c;
+    background: #f8ebe3;
   }
 }
 
@@ -488,11 +544,11 @@ const stop = () => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #92600a;
+  color: #80513a;
   flex-wrap: wrap;
 
   .thought-arg {
-    color: #c2561a;
+    color: #9f4b25;
   }
 
   .thought-done {
@@ -505,7 +561,7 @@ const stop = () => {
   margin-left: auto;
   width: 12px;
   height: 12px;
-  border: 2px solid #fb923c;
+  border: 2px solid #b7592c;
   border-top-color: transparent;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -523,26 +579,107 @@ const stop = () => {
   overflow-y: auto;
   padding: 8px;
   border-radius: 6px;
-  background: rgb(251 191 36 / 8%);
+  background: rgb(183 89 44 / 8%);
   font-family: inherit;
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #8b7355;
+  color: #7b6559;
 }
 
 .cursor {
   display: inline-block;
-  color: #fb923c;
+  color: #b7592c;
   animation: pulse 0.8s infinite;
 }
 
 .input-bar {
   display: flex;
-  gap: 12px;
-  padding: 14px 28px;
-  border-top: 1px solid #f3e3c9;
-  background: #fffdf7;
+  gap: 0.75rem;
+  padding: 0.9rem 170.5px 1.1rem;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.84);
+  :deep(.el-input) {
+    flex: 1;
+  }
+  :deep(.el-input__wrapper) {
+    min-height: 2.9rem;
+    border-radius: 0.85rem;
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(183, 89, 44, 0.16) inset;
+    transition: box-shadow 220ms cubic-bezier(0.32, 0.72, 0, 1);
+    &.is-focus {
+      box-shadow: 0 0 0 2px rgba(183, 89, 44, 0.34) inset;
+    }
+  }
+  :deep(.el-button) {
+    min-height: 2.9rem;
+    padding: 0 1.1rem;
+    border-radius: 0.85rem;
+    background: #b7592c;
+    border: 0;
+    transition:
+      transform 220ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 220ms cubic-bezier(0.32, 0.72, 0, 1);
+    &:hover {
+      background: #94431f;
+      transform: translateY(-1px);
+    }
+    &:active {
+      transform: scale(0.98);
+    }
+  }
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 680px) {
+  .butler-page {
+    min-height: calc(100dvh - 60px);
+  }
+  .butler-header {
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding-inline: 1rem;
+  }
+  .agent-badge {
+    flex-shrink: 0;
+  }
+  .chat-list {
+    width: min(100% - 1.2rem, 920px);
+    padding-top: 1rem;
+  }
+  .msg-row .bubble {
+    max-width: calc(100vw - 5.2rem);
+  }
+  .input-bar {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding: 0.7rem;
+  }
+  .input-bar :deep(.el-input) {
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .input-bar :deep(.el-button) {
+    margin-left: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-row,
+  .agent-badge .dot {
+    animation: none;
+  }
 }
 </style>

@@ -1,17 +1,26 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
+import { ElMessageBox, ElMessage } from "element-plus";
 import { logout as logoutApi } from "@/apis/admin";
 const router = useRouter();
 const iconUrl = new URL("@/assets/images/机器人.png", import.meta.url).href;
 const isLoggedIn = ref(false);
 
 const handleLogout = () => {
-  logoutApi().then(() => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("userInfo");
-    isLoggedIn.value = false;
-    router.push("/");
+  //退出二次确认：与后台 NavBar 同款，取消则不发起退出请求
+  ElMessageBox.confirm("确定退出登录吗？", "提示", {
+    confirmButtonText: "确定",
+    cancelButtonText: "取消",
+    type: "warning",
+  }).then(() => {
+    logoutApi().then(() => {
+      localStorage.removeItem("token");
+      localStorage.removeItem("userInfo");
+      isLoggedIn.value = false;
+      router.push("/");
+      ElMessage.success("退出登录成功");
+    });
   });
 };
 
@@ -96,6 +105,81 @@ onMounted(() => {
         font-weight: 500;
         &:hover {
           color: #4a90e2;
+        }
+      }
+    }
+  }
+
+  @media (max-width: 760px) {
+    .navbar-container {
+      min-height: 58px;
+      height: auto;
+      padding: 8px 14px;
+      gap: 14px;
+
+      .brand-section {
+        min-width: 0;
+
+        :deep(.el-image) {
+          width: 36px !important;
+          height: 36px !important;
+          flex: 0 0 auto;
+        }
+
+        .brand-name {
+          max-width: 120px;
+          margin-left: 7px;
+          color: #29313a;
+          font-size: 16px;
+          line-height: 1.2;
+          text-wrap: balance;
+        }
+      }
+
+      .nav-section {
+        min-width: 0;
+        flex: 1;
+        justify-content: flex-end;
+        gap: 10px;
+        overflow-x: auto;
+        scrollbar-width: none;
+
+        &::-webkit-scrollbar {
+          display: none;
+        }
+
+        .nav-link {
+          flex: 0 0 auto;
+          font-size: 13px;
+          white-space: nowrap;
+        }
+
+        :deep(.el-button) {
+          height: 34px;
+          padding: 0 11px;
+          font-size: 13px;
+        }
+      }
+    }
+  }
+
+  @media (max-width: 430px) {
+    .navbar-container {
+      .brand-name {
+        max-width: 76px;
+        font-size: 14px;
+      }
+
+      .nav-section {
+        gap: 7px;
+        justify-content: flex-start;
+
+        .nav-link {
+          font-size: 12px;
+        }
+
+        :deep(.el-button) {
+          padding: 0 8px;
         }
       }
     }

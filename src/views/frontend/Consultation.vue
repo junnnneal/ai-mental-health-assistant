@@ -31,6 +31,9 @@ const iconUrl1 = new URL("@/assets/images/robot-fill.png", import.meta.url)
   .href;
 const iconUrl2 = new URL("@/assets/images/like.png", import.meta.url).href;
 const iconUrl3 = new URL("@/assets/images/users.png", import.meta.url).href;
+//对话区AI端头像（机器人.png，与侧边栏/后台同一张）
+const aiAvatarUrl = new URL("@/assets/images/机器人.png", import.meta.url)
+  .href;
 
 const createDefaultEmotionGarden = (): EmotionGarden => ({
   primaryEmotion: "中性",
@@ -859,12 +862,12 @@ onUnmounted(() => {
       </div>
       <!-- 聊天区域 -->
       <div class="chat-messages">
-        <!-- 欢迎用语 -->
-        <div class="message-item ai-message" v-if="message.length === 0">
+        <!-- 欢迎用语：常驻第一条，不随对话开始而消失 -->
+        <div class="message-item ai-message">
           <div class="message-avatar">
             <el-image
-              :src="iconUrl1"
-              style="width: 18px; height: 18px"
+              :src="aiAvatarUrl"
+              style="width: 20px; height: 20px"
               alt="机器人"
             />
           </div>
@@ -874,7 +877,6 @@ onUnmounted(() => {
                 你好，我是心理健康AI助手。请告诉我你的困扰，我会尽力为你提供帮助。
               </p>
             </div>
-            <div class="message-time">刚刚</div>
           </div>
         </div>
         <!-- 历史会话消息 -->
@@ -893,8 +895,8 @@ onUnmounted(() => {
             />
             <el-image
               v-else
-              :src="iconUrl1"
-              style="width: 18px; height: 18px"
+              :src="aiAvatarUrl"
+              style="width: 20px; height: 20px"
               :alt="msg.senderTypeDesc"
             />
           </div>
@@ -940,13 +942,14 @@ onUnmounted(() => {
                   </span>
                 </div>
               </div>
-              <div class="message-time">
-                {{
-                  msg.senderType === 2 && isAiTyping
-                    ? "正在输入中..."
-                    : formatMsgTime(msg.createdAt)
-                }}
-              </div>
+            </div>
+            <!-- 时间戳放在气泡外，紧贴气泡下方 -->
+            <div class="message-time">
+              {{
+                msg.senderType === 2 && isAiTyping
+                  ? "正在输入中..."
+                  : formatMsgTime(msg.createdAt)
+              }}
             </div>
           </div>
         </div>
@@ -990,7 +993,7 @@ onUnmounted(() => {
 .consultation-container {
   margin: 0 auto;
   width: 1200px;
-  height: calc(100vh - 40px);
+  height: calc(100dvh - 40px);
   min-height: 680px;
   display: flex;
   align-items: stretch;
@@ -1015,7 +1018,7 @@ onUnmounted(() => {
         0 2px 8px rgba(0, 0, 0, 0.04);
       border: 1px solid rgba(251, 146, 60, 0.08);
       backdrop-filter: blur(10px);
-      transition: all 0.3s ease;
+      transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1), opacity 260ms cubic-bezier(0.32, 0.72, 0, 1);
       .breathing-circle {
         width: 60px;
         height: 60px;
@@ -1088,7 +1091,7 @@ onUnmounted(() => {
           margin-bottom: 8px;
           border-radius: 12px;
           cursor: pointer;
-          transition: all 0.3s ease;
+          transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1), background-color 260ms cubic-bezier(0.32, 0.72, 0, 1), border-color 260ms cubic-bezier(0.32, 0.72, 0, 1);
           border: 2px solid transparent;
           &:hover {
             background: #f8f9ff;
@@ -1330,7 +1333,7 @@ onUnmounted(() => {
               height: 8px;
               border-radius: 50%;
               background: #e0e0e0;
-              transition: all 0.3s ease;
+              transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1), background-color 260ms cubic-bezier(0.32, 0.72, 0, 1);
               &.active {
                 background: linear-gradient(135deg, #ff9a9e, #fecfef);
                 transform: scale(1.2);
@@ -1558,6 +1561,10 @@ onUnmounted(() => {
             background: linear-gradient(135deg, #6b7280, #4b5563);
             box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
           }
+          //时间戳移出气泡后：用户消息的时间跟随气泡右侧对齐
+          .message-content .message-time {
+            text-align: right;
+          }
         }
         .message-content {
           max-width: 70%;
@@ -1700,9 +1707,223 @@ onUnmounted(() => {
         ) !important;
         border: none !important;
         box-shadow: 0 6px 20px rgba(251, 146, 60, 0.25);
-        transition: all 0.3s ease;
+        transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1), background-color 260ms cubic-bezier(0.32, 0.72, 0, 1);
       }
     }
   }
 }
+</style>
+
+<style scoped lang="scss">
+/* Specificity bridge: keep the legacy nested markup while replacing its warm defaults. */
+.consultation-container .sidebar .emotion-garden { background: #fff; box-shadow: 0 16px 36px rgba(157, 93, 38, 0.07); }
+.consultation-container .sidebar .emotion-garden .emotion-overview .emotion-orbit { color: var(--ink); background: radial-gradient(circle at center, #fff 58%, transparent 60%), conic-gradient(var(--sage) 0 58%, #facc15 58% 78%, #fb7185 78% 100%); box-shadow: inset 0 0 0 1px rgba(251,146,60,.14), 0 10px 24px rgba(251,146,60,.12); }
+.consultation-container .sidebar .emotion-garden .emotion-overview .emotion-copy .emotion-name { color: var(--ink); }
+.consultation-container .sidebar .emotion-garden .emotion-overview .emotion-copy .emotion-summary { color: var(--muted); }
+.consultation-container .sidebar .emotion-garden .emotion-meter .meter-fill { background: linear-gradient(90deg, #22c55e, #facc15 52%, #fb7185); }
+.consultation-container .sidebar .emotion-garden .warm-tips .warm-suggestion,
+.consultation-container .sidebar .emotion-garden .warm-tips .healing-actions .action-item { background: #fffdf7; border-color: rgba(251,146,60,.12); box-shadow: none; }
+.consultation-container .sidebar .emotion-garden .warm-tips .suggestion-title,
+.consultation-container .sidebar .emotion-garden .warm-tips .actions-title { color: var(--ink); }
+.consultation-container .sidebar .emotion-garden .warm-tips .suggestion-text,
+.consultation-container .sidebar .emotion-garden .warm-tips .action-text { color: var(--muted); }
+.consultation-container .sidebar .emotion-garden .warm-tips .risk-notice { background: #fff9e6; border-color: rgba(255,234,167,.7); box-shadow: none; }
+
+.consultation-container .chat-main .chat-messages .message-item .message-content .message-bubble { background: #fff; border-color: var(--line); box-shadow: 0 10px 24px rgba(157,93,38,.06); }
+.consultation-container .chat-main .chat-messages .message-item.user-message .message-content .message-bubble { background: var(--sage); border-color: transparent; }
+.consultation-container .chat-main .chat-input .input-container :deep(.el-textarea__inner) { border-color: var(--line); background: #fffdfb; }
+.consultation-container .chat-main .chat-input .send-btn { background: var(--sage) !important; box-shadow: 0 12px 24px rgba(251,146,60,.2); }
+</style>
+
+<style scoped lang="scss">
+/* Soft structuralism overlay for the existing consultation workspace. */
+.consultation-container {
+  --ink: #3f2932;
+  --muted: #806873;
+  --sage: #b24662;
+  --sage-soft: #f8e9ee;
+  --line: rgba(178, 70, 98, 0.16);
+  width: 100%;
+  max-width: none;
+  height: auto;
+  min-height: calc(100dvh - 70px);
+  /* Full-bleed background, centered content rail (like the emotion diary page). */
+  padding: clamp(0.75rem, 2vw, 1.35rem)
+    max(21.6px, calc((100% - 1360px) / 2 + 21.6px));
+  gap: clamp(0.75rem, 2vw, 1.25rem);
+  box-sizing: border-box;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(226, 175, 190, 0.45), transparent 32%),
+    #fdf8fa;
+  color: var(--ink);
+}
+
+.consultation-container .sidebar {
+  width: clamp(250px, 25vw, 320px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(178,70,98,.24) transparent;
+}
+
+.consultation-container .sidebar .ai-assistant-info,
+.consultation-container .sidebar .emotion-garden,
+.consultation-container .sidebar .session-history,
+.consultation-container .chat-main {
+  border: 1px solid var(--line);
+  box-shadow: 0 16px 36px rgba(95, 42, 58, 0.08);
+}
+
+.consultation-container .sidebar .ai-assistant-info {
+  padding: 1.35rem 1rem;
+  border-radius: 1.15rem;
+  background: rgba(255,255,255,.82);
+  backdrop-filter: none;
+}
+.consultation-container .sidebar .ai-assistant-info .breathing-circle {
+  width: 4.1rem;
+  height: 4.1rem;
+  margin-bottom: 0.8rem;
+  background: var(--sage-soft);
+  box-shadow: inset 0 0 0 1px rgba(178,70,98,.18), 0 14px 26px rgba(178,70,98,.16);
+}
+.consultation-container .sidebar .ai-assistant-info .assistant-name {
+  color: var(--ink);
+  background: none;
+  -webkit-text-fill-color: initial;
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+}
+.consultation-container .sidebar .ai-assistant-info .online-status { color: var(--sage); }
+.consultation-container .sidebar .ai-assistant-info .online-status .status-dot { background: var(--sage); box-shadow: none; }
+
+.consultation-container .sidebar .emotion-garden {
+  padding: 1.15rem;
+  border-radius: 1.15rem;
+  background: #fff;
+  box-shadow: 0 16px 36px rgba(95, 42, 58, 0.07);
+}
+.consultation-container .emotion-garden .garden-header { margin-bottom: 1.1rem; }
+.consultation-container .emotion-garden .garden-title { color: var(--ink); font-size: .9rem; }
+.consultation-container .emotion-garden .garden-title .el-icon { color: var(--sage); }
+.consultation-container .emotion-garden .emotion-overview { gap: 0.8rem; }
+.consultation-container .emotion-garden .emotion-orbit {
+  width: 5.2rem;
+  height: 5.2rem;
+  color: var(--ink);
+  background: radial-gradient(circle at center, #fff 58%, transparent 60%), conic-gradient(var(--sage) 0 58%, #facc15 58% 78%, #fb7185 78% 100%);
+  box-shadow: inset 0 0 0 1px rgba(178,70,98,.14), 0 10px 24px rgba(178,70,98,.12);
+}
+.consultation-container .emotion-garden .emotion-score { font-size: 1.6rem; font-variant-numeric: tabular-nums; }
+.consultation-container .emotion-garden .emotion-unit { color: var(--muted); }
+.consultation-container .emotion-garden .emotion-copy .emotion-name { color: var(--ink); font-size: 1.05rem; }
+.consultation-container .emotion-garden .emotion-copy .emotion-summary { color: var(--muted); }
+.consultation-container .emotion-garden .emotion-meter { height: 0.42rem; background: #f4e3e9; }
+.consultation-container .emotion-garden .emotion-meter .meter-fill { background: linear-gradient(90deg, #22c55e, #facc15 52%, #fb7185); }
+.consultation-container .emotion-garden .warm-tips .status-label,
+.consultation-container .emotion-garden .warm-tips .intensity-text { color: var(--muted); }
+.consultation-container .emotion-garden .warm-tips .status-emotion { color: var(--sage); background: var(--sage-soft); }
+.consultation-container .emotion-garden .warm-tips .status-emotion.attention { color: #a65347; background: #fff0ec; }
+.consultation-container .emotion-garden .warm-tips .intensity-dots .dot { background: #ead9df; }
+.consultation-container .emotion-garden .warm-tips .intensity-dots .dot.active { background: var(--sage); box-shadow: 0 2px 8px rgba(178,70,98,.22); }
+.consultation-container .emotion-garden .warm-suggestion,
+.consultation-container .emotion-garden .healing-actions .action-item { background: #fdf9fa; border: 1px solid rgba(178,70,98,.1); box-shadow: none; }
+.consultation-container .emotion-garden .suggestion-icon { color: var(--sage); }
+.consultation-container .emotion-garden .suggestion-title,
+.consultation-container .emotion-garden .actions-title { color: var(--ink); }
+.consultation-container .emotion-garden .suggestion-text,
+.consultation-container .emotion-garden .action-text { color: var(--muted); }
+.consultation-container .emotion-garden .action-icon { color: var(--sage); background: var(--sage-soft); }
+.consultation-container .emotion-garden .risk-notice { background: #fff6ed; border-color: rgba(200,120,59,.22); box-shadow: none; }
+.consultation-container .emotion-garden .notice-title { color: #a66231; }
+.consultation-container .emotion-garden .notice-text { color: #986b4c; }
+
+.consultation-container .sidebar .session-history {
+  padding: 1rem;
+  border-radius: 1.15rem;
+  background: rgba(255,255,255,.82);
+  box-shadow: 0 16px 36px rgba(95, 42, 58, 0.06);
+}
+.consultation-container .session-history .session-title { color: var(--ink); font-size: .9rem; }
+.consultation-container .session-history .session-item { border: 1px solid transparent; border-radius: .8rem; transition: transform 240ms cubic-bezier(0.32,0.72,0,1), background-color 240ms cubic-bezier(0.32,0.72,0,1), border-color 240ms cubic-bezier(0.32,0.72,0,1); }
+.consultation-container .session-history .session-item:hover { transform: translateX(3px); background: #f9eef2; border-color: var(--line); }
+.consultation-container .session-history .session-title > span { color: var(--ink); }
+.consultation-container .session-history .session-preview,
+.consultation-container .session-history .session-time,
+.consultation-container .session-history .session-stats span { color: var(--muted); }
+
+.consultation-container .chat-main {
+  border-radius: 1.35rem;
+  background: #fff;
+  backdrop-filter: none;
+}
+.consultation-container .chat-main .chat-header {
+  padding: 1rem clamp(1rem, 3vw, 1.6rem);
+  background: linear-gradient(135deg, #b24662 0%, #7f334a 100%);
+  color: #fff;
+  border-bottom: 1px solid var(--line);
+}
+.consultation-container .chat-main .chat-header .chat-avatar { width: 2.8rem; height: 2.8rem; margin-right: .8rem; background: var(--sage-soft); box-shadow: none; }
+.consultation-container .chat-main .chat-header .chat-info h2 { color: #fff; font-size: 1.05rem; }
+.consultation-container .chat-main .chat-header .chat-info p { color: rgba(255,255,255,.82); font-size: .76rem; }
+.consultation-container .chat-main .chat-header > .el-button { color: #fff; border-color: rgba(255,255,255,.38); background: rgba(255,255,255,.14); }
+.consultation-container .chat-main .chat-messages {
+  padding: clamp(1rem, 3vw, 1.75rem);
+  gap: 1.15rem;
+  background: #fefafb;
+  scrollbar-color: rgba(178,70,98,.22) transparent;
+}
+.consultation-container .chat-messages .message-avatar { border-radius: .7rem; background: var(--sage-soft) !important; box-shadow: none !important; }
+.consultation-container .chat-messages .message-content { max-width: min(72%, 48rem); }
+.consultation-container .chat-messages .message-bubble {
+  border-radius: .35rem 1rem 1rem 1rem;
+  padding: .85rem 1rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 24px rgba(95,42,58,.06);
+  animation: consultation-in 420ms cubic-bezier(0.32,.72,0,1) both;
+}
+.consultation-container .chat-messages .user-message { flex-direction: row-reverse; }
+.consultation-container .chat-messages .user-message .message-bubble { border-radius: 1rem .35rem 1rem 1rem; background: var(--sage); color: #fff; border-color: transparent; }
+.consultation-container .chat-messages .message-time { color: #967b86; }
+.consultation-container .chat-messages .citations { border-top-color: rgba(178,70,98,.2); }
+.consultation-container .chat-messages .citation-card { background: #f9edf1; }
+.consultation-container .chat-messages .citations-title { color: var(--sage); }
+.consultation-container .chat-messages .citation-text { color: #68525c; }
+
+.consultation-container .chat-main .chat-input {
+  gap: .8rem;
+  padding: .8rem clamp(1rem, 3vw, 1.6rem) 1rem;
+  border-top-color: var(--line);
+  background: #fff;
+  backdrop-filter: none;
+}
+.consultation-container .chat-input .input-container :deep(.el-textarea__inner) { min-height: 4.4rem !important; border: 1px solid var(--line); border-radius: .85rem; background: #fdf9fa; color: var(--ink); transition: box-shadow 220ms cubic-bezier(.32,.72,0,1), border-color 220ms cubic-bezier(.32,.72,0,1); }
+.consultation-container .chat-input .input-container :deep(.el-textarea__inner:focus) { border-color: rgba(178,70,98,.45); box-shadow: 0 0 0 3px rgba(178,70,98,.12) !important; }
+.consultation-container .chat-input .input-footer { color: #806873; }
+.consultation-container .chat-input .send-btn { width: 3.35rem; height: 3.35rem; margin-bottom: 1.35rem; border-radius: 1rem; background: var(--sage) !important; box-shadow: 0 12px 24px rgba(178,70,98,.2); transition: transform 240ms cubic-bezier(.32,.72,0,1), background-color 240ms cubic-bezier(.32,.72,0,1); }
+.consultation-container .chat-input .send-btn:hover { background: #91384f !important; transform: translateY(-2px); }
+.consultation-container .chat-input .send-btn:active { transform: scale(.97); }
+
+@keyframes consultation-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 920px) {
+  .consultation-container { width: 100%; height: auto; min-height: calc(100dvh - 60px); flex-direction: column; }
+  .consultation-container .sidebar { width: 100%; max-height: none; overflow: visible; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .8rem; }
+  .consultation-container .sidebar .ai-assistant-info { grid-column: 1 / -1; margin-bottom: 0; }
+  .consultation-container .sidebar .emotion-garden, .consultation-container .sidebar .session-history { margin-bottom: 0; }
+  .consultation-container .chat-main { min-height: 70dvh; }
+}
+@media (max-width: 600px) {
+  .consultation-container { padding: .65rem; }
+  .consultation-container .sidebar { display: flex; flex-direction: column; }
+  .consultation-container .sidebar .ai-assistant-info { padding: 1rem; }
+  .consultation-container .sidebar .emotion-garden { order: 2; }
+  .consultation-container .sidebar .session-history { order: 3; }
+  .consultation-container .chat-main .chat-header { padding: .8rem 1rem; }
+  .consultation-container .chat-main .chat-messages { padding: .9rem; }
+  .consultation-container .chat-messages .message-content { max-width: calc(100% - 2.75rem); }
+  .consultation-container .chat-input { align-items: stretch; flex-wrap: wrap; }
+  .consultation-container .chat-input .input-container { flex-basis: 100%; }
+  .consultation-container .chat-input .send-btn { margin-left: auto; margin-bottom: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .consultation-container .message-bubble, .consultation-container .breathing-circle, .consultation-container .status-dot { animation: none; } }
 </style>
