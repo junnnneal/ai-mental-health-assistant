@@ -31,14 +31,52 @@ export const ragChatStream = async (
   },
   signal?: AbortSignal,
 ) => {
-  const res = await fetch("/agent/rag/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal,
-  });
-  if (!res.ok || !res.body) {
-    throw new Error(`RAG服务接口异常：${res.status}`);
+  //瞬态网关错误自动重试一次：Render 免费实例冷启动/OOM重启的窗口期，
+  //Netlify 会回 502/504（或网络层直接失败）——等 3 秒实例缓过来再发基本就通。
+  //只在"响应尚未开始"时重试：流中途断开不重发，避免回复内容重复；
+  //4xx 等非瞬态状态码不重试，直接走调用方错误处理。
+  const TRANSIENT_STATUS = new Set([502, 503, 504]);
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  let res: Response | undefined;
+  let lastError = "";
+  for (let attempt = 0; attempt < 2 && !res; attempt++) {
+    if (attempt > 0) {
+      await sleep(3000);
+    }
+    try {
+      const r = await fetch("/agent/rag/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal,
+      });
+      if (r.ok && r.body) {
+        res = r;
+      } else {
+        //错误信息带上响应体片段：agent.mjs 的 502 会写明是哪一跳失败，方便定位
+        let detail = `HTTP ${r.status}`;
+        try {
+          const text = await r.text();
+          if (text) {
+            detail += `：${text.slice(0, 120)}`;
+          }
+        } catch {
+          /* 响应体读不出就只报状态码 */
+        }
+        lastError = detail;
+        if (!TRANSIENT_STATUS.has(r.status)) {
+          break;
+        }
+      }
+    } catch (e) {
+      if (signal?.aborted) {
+        throw e;
+      }
+      lastError = `网络错误：${(e as Error).message}`;
+    }
+  }
+  if (!res || !res.body) {
+    throw new Error(`RAG服务接口异常：${lastError || "无响应"}`);
   }
 
   // 原生流式解析SSE（与 HealthButler.vue 同款）：buffer暂存半行，按\n切割逐条处理

@@ -57,19 +57,94 @@ async def embed_texts(texts: list[str], client: httpx.AsyncClient) -> list[list[
     return vectors
 
 
+# 精排专用长连接客户端：每次请求现开 AsyncClient 要付冷启 TLS 握手，
+# Render（美国）打国内 API 一个来回就是几百毫秒——模块级复用连接，
+# 第一条消息之后精排延迟稳定在网络往返+推理本身。惰性创建，进程退出自动回收。
+_rerank_client: httpx.AsyncClient | None = None
+
+
+def _get_rerank_client() -> httpx.AsyncClient:
+    global _rerank_client
+    if _rerank_client is None or _rerank_client.is_closed:
+        _rerank_client = httpx.AsyncClient(timeout=config.RERANK_TIMEOUT)
+    return _rerank_client
+
+
+async def _rerank(query: str, candidates: list[dict]) -> list[tuple[dict, float]] | None:
+    """cross-encoder 精排：query 与每段块文本拼对打分，按相关度重排候选。
+    返回 [(候选, rerank分)] 按分数降序；None = 精排不可用（未配置/超时/接口异常），
+    调用方回退向量原序——精排是增强项，任何失败都绝不拖垮或延迟主链路。
+
+    分数语义：rerank 分数（0~1 relevance）与余弦分数不是一个尺度、分布也不同
+    （实测 rerank 区分度高两个数量级），所以阈值两把尺子分开配、不混用；
+    引用卡片对外仍统一展示余弦分。"""
+    if not config.RERANK_API_KEY or len(candidates) < 2:
+        return None
+    # 送精排的文本带"文章标题 - 小节"语境（cross-encoder 比向量检索更吃上下文），单段截500字控延迟
+    documents = [
+        f"{c['articleTitle']} - {c['heading']}\n{c['text'][:500]}"
+        for c in candidates
+    ]
+    try:
+        r = await _get_rerank_client().post(
+            config.RERANK_URL,
+            headers={"Authorization": f"Bearer {config.RERANK_API_KEY}"},
+            json={
+                "model": config.RERANK_MODEL,
+                "query": query,
+                "documents": documents,
+                "top_n": len(documents),
+            },
+        )
+        r.raise_for_status()
+        # 兼容 Jina/Cohere 风格响应：{results: [{index, relevance_score}, ...]}，按分数降序
+        results = r.json().get("results") or []
+        if not results:
+            return None
+        return [
+            (candidates[item["index"]], float(item.get("relevance_score") or 0.0))
+            for item in results
+            if isinstance(item.get("index"), int) and 0 <= item["index"] < len(candidates)
+        ]
+    except Exception as e:  # noqa: BLE001 —— 精排失败≠检索失败
+        print(f"[RAG] rerank 不可用，回退向量原序：{e}")
+        return None
+
+
 async def retrieve(query: str, top_k: int | None = None) -> list[dict]:
-    """问题向量化 → 向量库取 top_k。
+    """问题向量化 → 向量库粗排 top-10 → （可选）cross-encoder 精排 → 取 top_k → 阈值过滤。
     任何失败都返回 []（调用方降级为无引用对话），检索绝不能拖垮聊天主链路。
-    返回项：{index(1起), id, articleId, articleTitle, heading, text, score}"""
+
+    两阶段：粗排先捞 max(top_k, RERANK_CANDIDATES) 个候选，精排从里面挑 top_k；
+    未配 RERANK_API_KEY 时 _rerank 直接返回 None，退化为单阶段向量 top_k——
+    与历史行为完全一致，所以不需要开关变量，配置即开关。
+
+    阈值过滤：弱相关的候选不进 prompt、不展示卡片（宁可无引用，不拿噪声污染回答）。
+    精排在场用 rerank 尺（RERANK_MIN_SCORE），关闭时用余弦尺（RAG_MIN_SCORE）——
+    两把尺子分布不同，分开校准，谁在场用谁。
+    返回项：{index(1起), id, articleId, articleTitle, heading, text, score}（score 恒为余弦分）"""
     query = (query or "").strip()
     if not query:
         return []
+    final_k = top_k or config.RAG_TOP_K
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             qv = (await embed_texts([query], client))[0]
         if not qv:
             return []
-        results = get_vector_store().query(qv, top_k or config.RAG_TOP_K)
+        candidates = get_vector_store().query(qv, max(final_k, config.RERANK_CANDIDATES))
+        reranked = await _rerank(query, candidates)
+        if reranked is not None:
+            top = reranked[:final_k]
+            results = [c for c, s in top if s >= config.RERANK_MIN_SCORE]
+            gate = f"rerank≥{config.RERANK_MIN_SCORE}"
+        else:
+            top = [(c, c["score"]) for c in candidates[:final_k]]
+            results = [c for c, s in top if s >= config.RAG_MIN_SCORE]
+            gate = f"余弦≥{config.RAG_MIN_SCORE}"
+        if len(results) < len(top):
+            print(f"[RAG] 阈值过滤：{len(top)} 个候选保留 {len(results)}（{gate}），"
+                  f"被滤分数：{[round(s, 3) for _, s in top if s < (config.RERANK_MIN_SCORE if reranked is not None else config.RAG_MIN_SCORE)]}")
     except Exception as e:  # noqa: BLE001 —— 检索失败≠对话失败
         print(f"[RAG] 检索失败，本条消息降级为无引用：{e}")
         return []

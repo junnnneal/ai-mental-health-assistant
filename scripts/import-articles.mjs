@@ -1,5 +1,5 @@
 /**
- * 批量导入心理健康知识库文章（30 篇种子语料）
+ * 批量导入心理健康知识库文章（150 篇种子语料）
  *
  * 用法：
  *   1. 浏览器登录后台 → F12 → Application → Local Storage → 复制 token 字段的值
@@ -16,7 +16,7 @@
  *   - 创建成功后自动发布（status=1，前台可见）
  *   - 单篇失败不会中断，结束后输出汇总
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -49,14 +49,18 @@ async function api(path, { method = "GET", body } = {}) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-//读取两份语料
+//读取 seed-articles 下全部语料文件（按文件名序号排序，新增批次文件零改动接入）
 const dir = dirname(fileURLToPath(import.meta.url));
-const articles = ["articles-1.json", "articles-2.json"].flatMap((f) =>
+const files = readdirSync(join(dir, "seed-articles"))
+  .filter((f) => /^articles-\d+\.json$/.test(f))
+  .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
+const articles = files.flatMap((f) =>
   JSON.parse(readFileSync(join(dir, "seed-articles", f), "utf-8"))
 );
 
 //语料分类 → 后台已有分类的映射（后台分类固定 4 个，无创建接口）
-//睡眠/成长/科普都属于基础心理知识，归入「心理健康基础」
+//睡眠/成长/科普/学业属于基础心理知识，归入「心理健康基础」；
+//情感/家庭本质是人际关系议题；职场心理归入「压力缓解」
 const CATEGORY_MAP = {
   "情绪管理": "情绪管理",
   "压力应对": "压力缓解",
@@ -64,6 +68,10 @@ const CATEGORY_MAP = {
   "睡眠健康": "心理健康基础",
   "自我成长": "心理健康基础",
   "心理科普": "心理健康基础",
+  "职场心理": "压力缓解",
+  "情感关系": "人际关系",
+  "家庭关系": "人际关系",
+  "学业成长": "心理健康基础",
 };
 
 async function main() {

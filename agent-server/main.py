@@ -154,6 +154,23 @@ async def rag_chat(request: Request):
                 print("[RAG] 知识库3秒内未就绪，本条消息降级为无引用对话")
 
             citations = await rag.retrieve(message)
+            # 指代型追问（"第二种方法是什么"）单看当前消息检索不到，而且未必是空结果——
+            # 会模模糊糊命中"第二步怎么做"这种序数语义的无关块（非空但错，实测0.31）。
+            # 所以触发线是"空结果 或 最高分 < RAG_RETRY_BELOW（弱命中）"，命中才拼上
+            # 最近一条用户提问重检一次，重检分更高才替换。只在弱命中时花这次额外检索：
+            # 独立完整的问题首轮高分通过，行为不变。不做"永远拼接"——历史话题会稀释
+            # 当前问题的向量，独立问题反而被带偏。
+            if history:
+                top_score = max((c["score"] for c in citations), default=0.0)
+                if top_score < config.RAG_RETRY_BELOW:
+                    last_user = next(
+                        (str(m.get("content") or "") for m in reversed(history) if m.get("role") == "user"),
+                        "",
+                    ).strip()
+                    if last_user:
+                        retry = await rag.retrieve(f"{last_user[:80]}\n{message}")
+                        if retry and max(c["score"] for c in retry) > top_score:
+                            citations = retry
             if citations:
                 # 引用卡片数据前置下发：回答还没开始就能渲染来源
                 yield _sse({
