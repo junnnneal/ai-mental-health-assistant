@@ -49,3 +49,7 @@ agent-server/__pycache__/
 agent-server/chroma_data/
 **/__pycache__/
 *.pyc
+# 评测中间产物：管线缓存与候选池（可由脚本随时重建，不进仓库）
+agent-server/eval_pipes_cache.json
+agent-server/eval_pool.json
+agent-server/eval_pool_new32.json
