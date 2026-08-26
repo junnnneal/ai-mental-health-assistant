@@ -1,0 +1,1173 @@
+{
+ "grade_definition": {
+  "0": "不相关：内容与问题无关，不该出现在答案里",
+  "1": "部分相关：主题沾边但不回答此问题，只能作背景",
+  "2": "相关：实质性回答此问题的一部分",
+  "3": "高度相关：直接回答此问题，理想情况下应排第一"
+ },
+ "annotation_convention": [
+  "标注单位=文章（labels 按 articleId），同一文章的知识块默认继承文章等级；个别小节差异大的用 chunk_labels 按『articleId|小节标题』覆盖",
+  "候选池=TREC pooling：粗排/精排实际暴露的 top-10 并集 + 人工补充的已知相关文章（池外补充在 note 里标明）",
+  "池外未标注文章一律按 0 处理；OOV 题按设计无 ≥2 的文章，正确行为=不产生引用卡片"
+ ],
+ "queries": [
+  {
+   "id": "syn-1",
+   "type": "synonym",
+   "query": "什么都不想干，提不起劲",
+   "context": null,
+   "labels": {
+    "seed:articles-1:3": 3,
+    "seed:articles-13:8": 2,
+    "seed:articles-1:14": 2,
+    "seed:articles-1:12": 1,
+    "seed:articles-3:2": 1
+   },
+   "note": "【池外补充】情绪低落(1:3)=3 粗排 top10 未召回——这是同义表达该命中的主答案；情绪麻木(3:2)=1"
+  },
+  {
+   "id": "syn-2",
+   "type": "synonym",
+   "query": "心里堵得慌，脑子里两个小人天天打架",
+   "context": null,
+   "labels": {
+    "seed:articles-3:1": 3,
+    "seed:articles-3:3": 1,
+    "seed:articles-3:0": 1,
+    "seed:articles-2:0": 0,
+    "seed:articles-12:5": 0,
+    "seed:articles-1:5": 0
+   },
+   "note": "口语描述正中『精神内耗』；易怒/情绪粒度只是沾边"
+  },
+  {
+   "id": "syn-3",
+   "type": "synonym",
+   "query": "一点小事就想发火，发完又后悔",
+   "context": null,
+   "labels": {
+    "seed:articles-3:3": 3,
+    "seed:articles-1:2": 2,
+    "seed:articles-3:1": 0,
+    "seed:articles-6:2": 0
+   },
+   "note": "主答案=易怒背后原因；愤怒管理(六秒法则)提供工具=2"
+  },
+  {
+   "id": "syn-4",
+   "type": "synonym",
+   "query": "总觉得身边人都比我优秀",
+   "context": null,
+   "labels": {
+    "seed:articles-13:5": 3,
+    "seed:articles-2:7": 2,
+    "seed:articles-7:1": 2,
+    "seed:articles-2:6": 2
+   },
+   "note": "主答案=同辈压力；社交比较/冒名顶替/自卑都是合理补充=2"
+  },
+  {
+   "id": "key-1",
+   "type": "keyword",
+   "query": "惊恐发作是什么感觉",
+   "context": null,
+   "labels": {
+    "seed:articles-8:1": 3,
+    "seed:articles-8:0": 2,
+    "seed:articles-1:0": 1,
+    "seed:articles-5:0": 1,
+    "seed:articles-9:7": 0,
+    "seed:articles-3:6": 0
+   }
+  },
+  {
+   "id": "key-2",
+   "type": "keyword",
+   "query": "长期失眠怎么办",
+   "context": null,
+   "labels": {
+    "seed:articles-4:1": 3,
+    "seed:articles-1:6": 3,
+    "seed:articles-4:6": 2,
+    "seed:articles-4:5": 2,
+    "seed:articles-4:0": 2,
+    "seed:articles-13:9": 1,
+    "seed:articles-1:5": 1
+   },
+   "note": "【池外补充】早醒型失眠(4:0)=2，属长期失眠谱系"
+  },
+  {
+   "id": "key-3",
+   "type": "keyword",
+   "query": "有强迫思维，反复检查门锁",
+   "context": null,
+   "labels": {
+    "seed:articles-8:2": 3,
+    "seed:articles-7:4": 0,
+    "seed:articles-1:13": 0
+   }
+  },
+  {
+   "id": "key-4",
+   "type": "keyword",
+   "query": "PTSD是什么",
+   "context": null,
+   "labels": {
+    "seed:articles-8:11": 3,
+    "seed:articles-5:0": 1,
+    "seed:articles-1:4": 0,
+    "seed:articles-5:1": 0,
+    "seed:articles-9:2": 0,
+    "seed:articles-9:0": 0
+   }
+  },
+  {
+   "id": "ana-1",
+   "type": "anaphora",
+   "query": "第二种方法是什么",
+   "context": "睡前焦虑睡不着有什么自救的办法",
+   "labels": {
+    "seed:articles-1:5": 2,
+    "seed:articles-1:6": 1
+   },
+   "chunk_labels": {
+    "seed:articles-1:5|方法二：4-7-8 呼吸法": 3,
+    "seed:articles-1:5|方法一：设立\"焦虑时间\"": 1,
+    "seed:articles-1:5|方法三：卧室只留给睡眠": 1,
+    "seed:articles-1:5|方法四：认知解离": 1,
+    "seed:articles-1:5|为什么焦虑偏爱深夜": 0
+   },
+   "note": "指代消解后唯一 3 分块=方法二；兄弟方法块只是同文章=1。裸问（不拼上下文）检索不到 3 分块是正常现象，判定看拼接变体"
+  },
+  {
+   "id": "ana-2",
+   "type": "anaphora",
+   "query": "第二个准备步骤展开讲讲",
+   "context": "怎么跟领导开口谈加薪",
+   "labels": {
+    "seed:articles-10:0": 2,
+    "seed:articles-9:1": 1,
+    "seed:articles-1:10": 0,
+    "seed:articles-10:3": 0
+   },
+   "chunk_labels": {
+    "seed:articles-10:0|谈加薪前，先回答三个问题": 3,
+    "seed:articles-10:0|一个可以直接套用的谈话框架": 2
+   },
+   "note": "『准备』环节对应『谈加薪前，先回答三个问题』=3；谈话框架=2"
+  },
+  {
+   "id": "ana-3",
+   "type": "anaphora",
+   "query": "时间线里第三个阶段是什么",
+   "context": "失恋了要多久才能走出来",
+   "labels": {
+    "seed:articles-11:1": 2,
+    "seed:articles-11:2": 1,
+    "seed:articles-2:14": 0,
+    "seed:articles-13:10": 0,
+    "seed:articles-9:4": 0,
+    "seed:articles-3:5": 0
+   },
+   "chunk_labels": {
+    "seed:articles-11:1|恢复路上常见的心理阶段": 3
+   },
+   "note": "『时间线/阶段』对应『恢复路上常见的心理阶段』=3"
+  },
+  {
+   "id": "oov-1",
+   "type": "oov",
+   "query": "最近股票亏了好多钱，怎么回本",
+   "context": null,
+   "labels": {
+    "seed:articles-2:8": 1,
+    "seed:articles-5:4": 1,
+    "seed:articles-13:11": 0,
+    "seed:articles-6:6": 0,
+    "seed:articles-3:5": 0,
+    "seed:articles-11:1": 0
+   },
+   "note": "【池外补充】经济压力与财务焦虑(5:4)=1。按设计无 ≥2 文章：正确行为=不出引用卡片"
+  },
+  {
+   "id": "oov-2",
+   "type": "oov",
+   "query": "感冒发烧吃什么药好得快",
+   "context": null,
+   "labels": {
+    "seed:articles-4:6": 0,
+    "seed:articles-8:1": 0,
+    "seed:articles-8:7": 0,
+    "seed:articles-4:1": 0,
+    "seed:articles-13:9": 0,
+    "seed:articles-5:0": 0,
+    "seed:articles-12:10": 0,
+    "seed:articles-6:5": 0
+   }
+  },
+  {
+   "id": "oov-3",
+   "type": "oov",
+   "query": "帮我写一段Python爬虫代码",
+   "context": null,
+   "labels": {
+    "seed:articles-2:5": 0,
+    "seed:articles-7:2": 0,
+    "seed:articles-2:7": 0,
+    "seed:articles-1:9": 0,
+    "seed:articles-1:12": 0,
+    "seed:articles-7:3": 0,
+    "seed:articles-5:6": 0,
+    "seed:articles-2:4": 0,
+    "seed:articles-7:1": 0
+   }
+  },
+  {
+   "id": "oov-4",
+   "type": "oov",
+   "query": "推荐几个适合五一去的旅游目的地",
+   "context": null,
+   "labels": {
+    "seed:articles-12:10": 0,
+    "seed:articles-13:10": 0,
+    "seed:articles-5:0": 0,
+    "seed:articles-1:8": 0
+   }
+  },
+  {
+   "id": "conf-1",
+   "type": "confusable",
+   "query": "焦虑症和抑郁症怎么区分",
+   "context": null,
+   "labels": {
+    "seed:articles-2:12": 3,
+    "seed:articles-8:0": 3,
+    "seed:articles-1:0": 2,
+    "seed:articles-8:3": 1
+   },
+   "note": "两侧都要给到：抑郁侧(2:12)=3、焦虑侧(8:0)=3；双相是鉴别诊断邻近=1"
+  },
+  {
+   "id": "conf-2",
+   "type": "confusable",
+   "query": "我是内向还是社交焦虑",
+   "context": null,
+   "labels": {
+    "seed:articles-6:4": 3,
+    "seed:articles-8:0": 2,
+    "seed:articles-1:0": 1,
+    "seed:articles-2:4": 0
+   },
+   "chunk_labels": {
+    "seed:articles-6:4|内向和社交焦虑是两回事": 3
+   }
+  },
+  {
+   "id": "conf-3",
+   "type": "confusable",
+   "query": "职业倦怠和抑郁症是一回事吗",
+   "context": null,
+   "labels": {
+    "seed:articles-9:0": 3,
+    "seed:articles-1:14": 3,
+    "seed:articles-2:12": 2
+   },
+   "note": "语料没有直接对比块；理想排序=倦怠两篇(3)+抑郁篇(2)占据前三"
+  },
+  {
+   "id": "crisis-1",
+   "type": "crisis",
+   "query": "我不想活了，活着没什么意义",
+   "context": null,
+   "labels": {
+    "seed:articles-2:13": 3,
+    "seed:articles-2:12": 2,
+    "seed:articles-7:6": 1,
+    "seed:articles-13:8": 0,
+    "seed:articles-9:8": 0
+   },
+   "note": "【池外补充】心理援助热线使用指南(2:13)=3 且粗排 top10 完全未召回——高危缺口"
+  },
+  {
+   "id": "crisis-2",
+   "type": "crisis",
+   "query": "朋友说想自杀，我该怎么办",
+   "context": null,
+   "labels": {
+    "seed:articles-2:13": 3,
+    "seed:articles-2:12": 2,
+    "seed:articles-2:4": 1,
+    "seed:articles-2:2": 0,
+    "seed:articles-2:5": 0,
+    "seed:articles-13:5": 0,
+    "seed:articles-13:12": 0
+   },
+   "chunk_labels": {
+    "seed:articles-2:12|陪伴抑郁者的要点": 3,
+    "seed:articles-1:1|什么时候不该只靠日记": 1
+   },
+   "note": "【池外补充】热线指南(2:13)=3 未召回；『陪伴抑郁者的要点』小节实际可答=3"
+  },
+  {
+   "id": "easy-1",
+   "type": "easy",
+   "query": "什么是情绪粒度",
+   "context": null,
+   "labels": {
+    "seed:articles-3:0": 3,
+    "seed:articles-2:14": 1
+   }
+  },
+  {
+   "id": "easy-2",
+   "type": "easy",
+   "query": "远程办公怎么守住工作生活的边界",
+   "context": null,
+   "labels": {
+    "seed:articles-9:6": 3,
+    "seed:articles-10:5": 2
+   }
+  },
+  {
+   "id": "easy-3",
+   "type": "easy",
+   "query": "压力日记怎么写",
+   "context": null,
+   "labels": {
+    "seed:articles-5:8": 3,
+    "seed:articles-1:1": 1
+   }
+  },
+  {
+   "id": "easy-4",
+   "type": "easy",
+   "query": "高敏感人群怎么自处",
+   "context": null,
+   "labels": {
+    "seed:articles-5:9": 3
+   }
+  },
+  {
+   "id": "easy-5",
+   "type": "easy",
+   "query": "异地恋怎么维持感情",
+   "context": null,
+   "labels": {
+    "seed:articles-11:3": 3,
+    "seed:articles-2:0": 1
+   }
+  },
+  {
+   "id": "easy-6",
+   "type": "easy",
+   "query": "室友打呼噜特别响，是不是睡眠呼吸暂停",
+   "context": null,
+   "labels": {
+    "seed:articles-4:2": 3
+   }
+  },
+  {
+   "id": "easy-7",
+   "type": "easy",
+   "query": "正念减压MBSR八周课讲什么",
+   "context": null,
+   "labels": {
+    "seed:articles-5:7": 3,
+    "seed:articles-2:11": 2
+   }
+  },
+  {
+   "id": "easy-8",
+   "type": "easy",
+   "query": "怎么选心理咨询师",
+   "context": null,
+   "labels": {
+    "seed:articles-8:5": 3,
+    "seed:articles-8:4": 1,
+    "seed:articles-2:10": 1
+   }
+  },
+  {
+   "id": "easy-9",
+   "type": "easy",
+   "query": "裸辞之前要想清楚什么",
+   "context": null,
+   "labels": {
+    "seed:articles-9:3": 3,
+    "seed:articles-10:6": 1
+   }
+  },
+  {
+   "id": "easy-10",
+   "type": "easy",
+   "query": "宝宝出生后我情绪很糟，是不是产后抑郁",
+   "context": null,
+   "labels": {
+    "seed:articles-12:11": 3,
+    "seed:articles-2:12": 2
+   }
+  },
+  {
+   "id": "syn-5",
+   "type": "synonym",
+   "query": "一到晚上就心慌，控制不住想坏事",
+   "context": null,
+   "labels": {
+    "seed:articles-1:5": 3,
+    "seed:articles-3:1": 2,
+    "seed:articles-1:0": 2
+   }
+  },
+  {
+   "id": "syn-6",
+   "type": "synonym",
+   "query": "看朋友圈就emo，觉得谁都过得比我好",
+   "context": null,
+   "labels": {
+    "seed:articles-2:7": 3,
+    "seed:articles-13:5": 2
+   }
+  },
+  {
+   "id": "syn-7",
+   "type": "synonym",
+   "query": "考试前肚子疼拉肚子，去医院又查不出毛病",
+   "context": null,
+   "labels": {
+    "seed:articles-1:11": 3,
+    "seed:articles-5:2": 2,
+    "seed:articles-13:9": 1
+   }
+  },
+  {
+   "id": "syn-8",
+   "type": "synonym",
+   "query": "任务堆着不想动，越拖越焦虑",
+   "context": null,
+   "labels": {
+    "seed:articles-1:12": 3,
+    "seed:articles-7:4": 1
+   }
+  },
+  {
+   "id": "syn-9",
+   "type": "synonym",
+   "query": "跟领导汇报完心怦怦跳，总觉得要被优化掉",
+   "context": null,
+   "labels": {
+    "seed:articles-9:7": 3,
+    "seed:articles-9:1": 1,
+    "seed:articles-10:6": 1
+   }
+  },
+  {
+   "id": "syn-10",
+   "type": "synonym",
+   "query": "我妈总拿我跟别人家孩子比",
+   "context": null,
+   "labels": {
+    "seed:articles-12:1": 2,
+    "seed:articles-13:5": 2,
+    "seed:articles-2:7": 1,
+    "seed:articles-12:3": 1
+   },
+   "note": "无3分主答案，考排序是否给到两个2分"
+  },
+  {
+   "id": "syn-11",
+   "type": "synonym",
+   "query": "一吃多就有罪恶感，心情差就想吃",
+   "context": null,
+   "labels": {
+    "seed:articles-3:8": 3
+   }
+  },
+  {
+   "id": "syn-12",
+   "type": "synonym",
+   "query": "冬天一到就emo，天晴了就好转",
+   "context": null,
+   "labels": {
+    "seed:articles-3:7": 3
+   }
+  },
+  {
+   "id": "syn-13",
+   "type": "synonym",
+   "query": "分手后一直哭，哭完又觉得自己没用",
+   "context": null,
+   "labels": {
+    "seed:articles-11:1": 3,
+    "seed:articles-3:4": 2,
+    "seed:articles-11:2": 2
+   }
+  },
+  {
+   "id": "syn-14",
+   "type": "synonym",
+   "query": "开会被点名发言，脸红手抖大脑空白",
+   "context": null,
+   "labels": {
+    "seed:articles-10:3": 3,
+    "seed:articles-6:4": 2
+   }
+  },
+  {
+   "id": "syn-15",
+   "type": "synonym",
+   "query": "伴侣总翻我手机查岗",
+   "context": null,
+   "labels": {
+    "seed:articles-11:13": 2,
+    "seed:articles-6:8": 2,
+    "seed:articles-11:7": 1,
+    "seed:articles-11:11": 2
+   },
+   "note": "无3分；权力/控制/信任三个2分方向"
+  },
+  {
+   "id": "syn-16",
+   "type": "synonym",
+   "query": "钱不够花压力大，月底就失眠",
+   "context": null,
+   "labels": {
+    "seed:articles-5:4": 3,
+    "seed:articles-1:6": 1
+   }
+  },
+  {
+   "id": "key-5",
+   "type": "keyword",
+   "query": "双相情感障碍能治好吗",
+   "context": null,
+   "labels": {
+    "seed:articles-8:3": 3
+   }
+  },
+  {
+   "id": "key-6",
+   "type": "keyword",
+   "query": "SCL-90量表结果怎么看",
+   "context": null,
+   "labels": {
+    "seed:articles-8:6": 3
+   }
+  },
+  {
+   "id": "key-7",
+   "type": "keyword",
+   "query": "杏仁核劫持是什么意思",
+   "context": null,
+   "labels": {
+    "seed:articles-8:9": 3
+   }
+  },
+  {
+   "id": "key-8",
+   "type": "keyword",
+   "query": "认知行为疗法CBT是什么",
+   "context": null,
+   "labels": {
+    "seed:articles-8:4": 3,
+    "seed:articles-1:6": 1,
+    "seed:articles-2:10": 1
+   }
+  },
+  {
+   "id": "key-9",
+   "type": "keyword",
+   "query": "广泛性焦虑障碍的表现有哪些",
+   "context": null,
+   "labels": {
+    "seed:articles-8:0": 3,
+    "seed:articles-1:0": 2
+   }
+  },
+  {
+   "id": "key-10",
+   "type": "keyword",
+   "query": "吃舍曲林会不会产生依赖",
+   "context": null,
+   "labels": {
+    "seed:articles-8:7": 3,
+    "seed:articles-4:6": 1
+   }
+  },
+  {
+   "id": "ana-4",
+   "type": "anaphora",
+   "query": "第二步和第三步展开讲讲",
+   "context": "非暴力沟通的四个步骤是什么",
+   "labels": {
+    "seed:articles-6:0": 1
+   },
+   "chunk_labels": {
+    "seed:articles-6:0|第二步和第三步：说出感受，找到需要": 3,
+    "seed:articles-6:0|第四步：提出请求，而不是命令": 1
+   }
+  },
+  {
+   "id": "ana-5",
+   "type": "anaphora",
+   "query": "这个量表去哪能做",
+   "context": "SCL-90是什么量表",
+   "labels": {
+    "seed:articles-8:6": 3
+   }
+  },
+  {
+   "id": "ana-6",
+   "type": "anaphora",
+   "query": "止损三步具体是哪三步",
+   "context": "工作干不动了是不是职业倦怠",
+   "labels": {
+    "seed:articles-1:14": 1,
+    "seed:articles-1:10": 1,
+    "seed:articles-9:0": 1
+   },
+   "chunk_labels": {
+    "seed:articles-1:14|止损三步": 3
+   }
+  },
+  {
+   "id": "ana-7",
+   "type": "anaphora",
+   "query": "去人格化是什么意思",
+   "context": "职业倦怠的三个维度是哪些",
+   "labels": {
+    "seed:articles-9:0": 1,
+    "seed:articles-1:14": 1
+   },
+   "chunk_labels": {
+    "seed:articles-9:0|维度二：去人格化": 3
+   }
+  },
+  {
+   "id": "ana-8",
+   "type": "anaphora",
+   "query": "那个方法对半夜醒来说有用吗",
+   "context": "睡不着有什么科学办法",
+   "labels": {
+    "seed:articles-1:6": 1,
+    "seed:articles-4:1": 1,
+    "seed:articles-4:0": 2
+   },
+   "chunk_labels": {
+    "seed:articles-4:1|半夜醒来时可以做的事": 3
+   }
+  },
+  {
+   "id": "oov-5",
+   "type": "oov",
+   "query": "怎么能快速涨粉做自媒体",
+   "context": null,
+   "labels": {}
+  },
+  {
+   "id": "oov-6",
+   "type": "oov",
+   "query": "考研数学该怎么复习",
+   "context": null,
+   "labels": {
+    "seed:articles-13:1": 1,
+    "seed:articles-1:11": 1
+   },
+   "note": "考研情绪支持沾边=1，问题本身是学习方法"
+  },
+  {
+   "id": "oov-7",
+   "type": "oov",
+   "query": "iPhone和安卓哪个值得买",
+   "context": null,
+   "labels": {}
+  },
+  {
+   "id": "oov-8",
+   "type": "oov",
+   "query": "红烧肉怎么做才不柴",
+   "context": null,
+   "labels": {}
+  },
+  {
+   "id": "oov-9",
+   "type": "oov",
+   "query": "公司注册流程是什么",
+   "context": null,
+   "labels": {}
+  },
+  {
+   "id": "oov-10",
+   "type": "oov",
+   "query": "房贷提前还款划算吗",
+   "context": null,
+   "labels": {
+    "seed:articles-5:4": 1
+   }
+  },
+  {
+   "id": "conf-4",
+   "type": "confusable",
+   "query": "焦虑和恐惧有什么区别",
+   "context": null,
+   "labels": {
+    "seed:articles-1:4": 2,
+    "seed:articles-1:0": 2,
+    "seed:articles-8:0": 2
+   },
+   "note": "无3分，鉴别类"
+  },
+  {
+   "id": "conf-5",
+   "type": "confusable",
+   "query": "心情差和抑郁症是一回事吗",
+   "context": null,
+   "labels": {
+    "seed:articles-2:12": 3,
+    "seed:articles-8:3": 1,
+    "seed:articles-1:3": 2
+   }
+  },
+  {
+   "id": "conf-6",
+   "type": "confusable",
+   "query": "强迫症和洁癖一样吗",
+   "context": null,
+   "labels": {
+    "seed:articles-8:2": 3
+   }
+  },
+  {
+   "id": "conf-7",
+   "type": "confusable",
+   "query": "心理咨询和去精神科看病有什么区别",
+   "context": null,
+   "labels": {
+    "seed:articles-2:10": 2,
+    "seed:articles-8:7": 2,
+    "seed:articles-8:5": 2
+   },
+   "note": "无3分，双轨信息都要给到"
+  },
+  {
+   "id": "conf-8",
+   "type": "confusable",
+   "query": "疑病和惊恐发作怎么区分",
+   "context": null,
+   "labels": {
+    "seed:articles-8:1": 2,
+    "seed:articles-8:0": 2
+   },
+   "note": "无3分"
+  },
+  {
+   "id": "crisis-3",
+   "type": "crisis",
+   "query": "我已经制定了自杀计划",
+   "context": null,
+   "labels": {
+    "seed:articles-2:13": 3,
+    "seed:articles-2:12": 2
+   }
+  },
+  {
+   "id": "crisis-4",
+   "type": "crisis",
+   "query": "活着好累，我想消失",
+   "context": null,
+   "labels": {
+    "seed:articles-2:13": 3,
+    "seed:articles-2:12": 2,
+    "seed:articles-3:2": 1
+   }
+  },
+  {
+   "id": "crisis-5",
+   "type": "crisis",
+   "query": "怎么安慰想不开的朋友",
+   "context": null,
+   "labels": {
+    "seed:articles-2:13": 3,
+    "seed:articles-2:12": 2
+   },
+   "chunk_labels": {
+    "seed:articles-2:12|陪伴抑郁者的要点": 3
+   }
+  },
+  {
+   "id": "crisis-6",
+   "type": "crisis",
+   "query": "孩子划手臂自残是不是心理有问题",
+   "context": null,
+   "labels": {
+    "seed:articles-2:12": 3,
+    "seed:articles-2:13": 2,
+    "seed:articles-12:7": 1,
+    "seed:articles-8:11": 1,
+    "seed:articles-12:6": 1
+   }
+  },
+  {
+   "id": "syn-17",
+   "type": "synonym",
+   "query": "半夜惊醒心跳很快，以为自己要死了",
+   "context": null,
+   "labels": {
+    "seed:articles-8:1": 3,
+    "seed:articles-4:1": 1,
+    "seed:articles-4:0": 1
+   }
+  },
+  {
+   "id": "syn-18",
+   "type": "synonym",
+   "query": "一到周日晚上就难受，想到上班就烦躁",
+   "context": null,
+   "labels": {
+    "seed:articles-1:14": 2,
+    "seed:articles-9:0": 2,
+    "seed:articles-1:10": 2,
+    "seed:articles-10:6": 2,
+    "seed:articles-3:3": 1,
+    "seed:articles-2:14": 1,
+    "seed:articles-1:1": 1
+   },
+   "note": "无3分（周一恐惧），三方向=2"
+  },
+  {
+   "id": "syn-19",
+   "type": "synonym",
+   "query": "总是忍不住拔头发",
+   "context": null,
+   "labels": {
+    "seed:articles-5:2": 1,
+    "seed:articles-8:2": 1
+   },
+   "note": "心理域但库外（拔毛癖）；脱发是词面陷阱=1"
+  },
+  {
+   "id": "syn-20",
+   "type": "synonym",
+   "query": "男朋友总说我在作，是我太敏感了吗",
+   "context": null,
+   "labels": {
+    "seed:articles-5:9": 2,
+    "seed:articles-6:8": 2,
+    "seed:articles-11:13": 2,
+    "seed:articles-11:9": 2,
+    "seed:articles-11:0": 2
+   },
+   "note": "无3分"
+  },
+  {
+   "id": "syn-21",
+   "type": "synonym",
+   "query": "失眠好几天了，白天上班像行尸走肉",
+   "context": null,
+   "labels": {
+    "seed:articles-4:1": 3,
+    "seed:articles-1:6": 2,
+    "seed:articles-1:7": 2,
+    "seed:articles-4:5": 2,
+    "seed:articles-4:6": 2,
+    "seed:articles-13:9": 1
+   }
+  },
+  {
+   "id": "syn-22",
+   "type": "synonym",
+   "query": "心里像压了块石头，开心不起来",
+   "context": null,
+   "labels": {
+    "seed:articles-1:3": 3,
+    "seed:articles-3:2": 1,
+    "seed:articles-2:12": 2,
+    "seed:articles-3:0": 1
+   }
+  },
+  {
+   "id": "syn-23",
+   "type": "synonym",
+   "query": "总担心出错，检查好几遍才敢交",
+   "context": null,
+   "labels": {
+    "seed:articles-8:2": 3,
+    "seed:articles-1:13": 2,
+    "seed:articles-1:0": 1,
+    "seed:articles-10:7": 1
+   }
+  },
+  {
+   "id": "syn-24",
+   "type": "synonym",
+   "query": "上班摸鱼刷手机停不下来",
+   "context": null,
+   "labels": {
+    "seed:articles-5:3": 3,
+    "seed:articles-5:6": 2,
+    "seed:articles-1:9": 1,
+    "seed:articles-10:5": 1
+   }
+  },
+  {
+   "id": "syn-25",
+   "type": "synonym",
+   "query": "相亲对象条件很好但我没感觉，家里催得紧",
+   "context": null,
+   "labels": {
+    "seed:articles-11:12": 3,
+    "seed:articles-11:8": 2,
+    "seed:articles-11:10": 2
+   }
+  },
+  {
+   "id": "syn-26",
+   "type": "synonym",
+   "query": "考完试对答案，越对越慌",
+   "context": null,
+   "labels": {
+    "seed:articles-1:11": 2,
+    "seed:articles-3:1": 1,
+    "seed:articles-13:1": 1,
+    "seed:articles-1:0": 1
+   },
+   "note": "无3分（考后反刍库内无专文）"
+  },
+  {
+   "id": "key-11",
+   "type": "keyword",
+   "query": "什么是病耻感",
+   "context": null,
+   "labels": {
+    "seed:articles-8:8": 3
+   }
+  },
+  {
+   "id": "key-12",
+   "type": "keyword",
+   "query": "心理韧性怎么培养",
+   "context": null,
+   "labels": {
+    "seed:articles-8:10": 3,
+    "seed:articles-7:3": 2,
+    "seed:articles-2:5": 1,
+    "seed:articles-7:7": 1
+   }
+  },
+  {
+   "id": "key-13",
+   "type": "keyword",
+   "query": "广泛性焦虑用什么药",
+   "context": null,
+   "labels": {
+    "seed:articles-8:7": 2,
+    "seed:articles-8:0": 2,
+    "seed:articles-1:0": 2
+   },
+   "note": "无3分（库内无用药指南）"
+  },
+  {
+   "id": "key-14",
+   "type": "keyword",
+   "query": "什么是情绪勒索",
+   "context": null,
+   "labels": {
+    "seed:articles-6:8": 3
+   }
+  },
+  {
+   "id": "easy-11",
+   "type": "easy",
+   "query": "怎么安慰失恋的朋友",
+   "context": null,
+   "labels": {
+    "seed:articles-11:1": 3,
+    "seed:articles-11:2": 2,
+    "seed:articles-1:4": 1,
+    "seed:articles-2:12": 1
+   }
+  },
+  {
+   "id": "easy-12",
+   "type": "easy",
+   "query": "信息过载怎么办",
+   "context": null,
+   "labels": {
+    "seed:articles-5:6": 3,
+    "seed:articles-1:10": 1,
+    "seed:articles-6:9": 1
+   }
+  },
+  {
+   "id": "easy-13",
+   "type": "easy",
+   "query": "习惯回路是什么",
+   "context": null,
+   "labels": {
+    "seed:articles-7:4": 3,
+    "seed:articles-2:9": 2
+   }
+  },
+  {
+   "id": "easy-14",
+   "type": "easy",
+   "query": "过年回家压力大怎么准备",
+   "context": null,
+   "labels": {
+    "seed:articles-12:10": 3,
+    "seed:articles-5:8": 1
+   }
+  },
+  {
+   "id": "ana-9",
+   "type": "anaphora",
+   "query": "第四条详细说说",
+   "context": "有效道歉的四个要素是什么",
+   "labels": {
+    "seed:articles-6:6": 1
+   },
+   "chunk_labels": {
+    "seed:articles-6:6|要素三和要素四：主动弥补，请求原谅": 3,
+    "seed:articles-6:6|要素一和要素二：明确承认，承担责任": 1
+   }
+  },
+  {
+   "id": "ana-10",
+   "type": "anaphora",
+   "query": "晚上那套带我练一遍",
+   "context": "睡不着有什么放松训练",
+   "labels": {
+    "seed:articles-4:5": 3
+   }
+  },
+  {
+   "id": "ana-11",
+   "type": "anaphora",
+   "query": "和第一种类型的相处建议呢",
+   "context": "恋爱依恋类型有哪几种",
+   "labels": {
+    "seed:articles-11:0": 3,
+    "seed:articles-6:0": 1
+   },
+   "note": "小节级不细标，文章级=3"
+  },
+  {
+   "id": "ana-12",
+   "type": "anaphora",
+   "query": "睡前刷手机那条展开讲讲",
+   "context": "睡眠卫生有哪些注意事项",
+   "labels": {
+    "seed:articles-1:9": 3
+   }
+  },
+  {
+   "id": "oov-11",
+   "type": "oov",
+   "query": "减肥期间能吃代餐吗",
+   "context": null,
+   "labels": {
+    "seed:articles-3:8": 1
+   },
+   "note": "进食话题沾边=1"
+  },
+  {
+   "id": "oov-12",
+   "type": "oov",
+   "query": "推荐一部好看的悬疑剧",
+   "context": null,
+   "labels": {}
+  },
+  {
+   "id": "oov-13",
+   "type": "oov",
+   "query": "公积金提取条件是什么",
+   "context": null,
+   "labels": {}
+  },
+  {
+   "id": "oov-14",
+   "type": "oov",
+   "query": "猫咪掉毛严重怎么办",
+   "context": null,
+   "labels": {}
+  },
+  {
+   "id": "conf-9",
+   "type": "confusable",
+   "query": "社交焦虑和回避型人格一样吗",
+   "context": null,
+   "labels": {
+    "seed:articles-6:4": 2,
+    "seed:articles-11:0": 2,
+    "seed:articles-8:0": 2
+   },
+   "note": "无3分；回避型依恋是词面陷阱"
+  },
+  {
+   "id": "conf-10",
+   "type": "confusable",
+   "query": "情绪崩溃和精神疾病发作有什么区别",
+   "context": null,
+   "labels": {
+    "seed:articles-3:5": 2,
+    "seed:articles-8:0": 1,
+    "seed:articles-2:12": 2,
+    "seed:articles-8:3": 2,
+    "seed:articles-1:4": 1,
+    "seed:articles-1:3": 1
+   },
+   "note": "无3分"
+  },
+  {
+   "id": "conf-11",
+   "type": "confusable",
+   "query": "喜欢独处是社交恐惧吗",
+   "context": null,
+   "labels": {
+    "seed:articles-7:5": 3,
+    "seed:articles-6:4": 2,
+    "seed:articles-8:0": 2
+   }
+  },
+  {
+   "id": "conf-12",
+   "type": "confusable",
+   "query": "焦虑引起的失眠和抑郁症的失眠一样吗",
+   "context": null,
+   "labels": {
+    "seed:articles-1:5": 2,
+    "seed:articles-1:6": 2,
+    "seed:articles-2:12": 2,
+    "seed:articles-4:1": 2,
+    "seed:articles-1:0": 1,
+    "seed:articles-8:0": 1
+   },
+   "note": "无3分，多方向都该给到"
+  },
+  {
+   "id": "crisis-7",
+   "type": "crisis",
+   "query": "朋友情绪崩溃说活不下去，怎么帮ta求助",
+   "context": null,
+   "labels": {
+    "seed:articles-2:13": 3,
+    "seed:articles-2:12": 2,
+    "seed:articles-2:4": 2,
+    "seed:articles-3:5": 1,
+    "seed:articles-1:3": 1
+   },
+   "note": "第三方视角、不含方式"
+  },
+  {
+   "id": "crisis-8",
+   "type": "crisis",
+   "query": "怎么帮朋友走出失去亲人的痛苦",
+   "context": null,
+   "labels": {
+    "seed:articles-12:8": 3,
+    "seed:articles-2:13": 1,
+    "seed:articles-1:4": 2
+   },
+   "note": "哀伤支持类"
+  }
+ ]
+}
