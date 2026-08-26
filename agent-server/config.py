@@ -57,6 +57,12 @@ RERANK_API_KEY = os.getenv("RERANK_API_KEY", "")
 RERANK_TIMEOUT = float(os.getenv("RERANK_TIMEOUT", "2"))  # 超时即放弃，回退向量原序（降级链第五层）
 RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "10"))  # 粗排候选数
 
+# RRF 融合常数：精排在场时，余弦序与 rerank 序各记完整排名（top-10 不在融合前过滤），
+# 按 1/(k+排名) 等权融合后再切 top_k。100 题标注集实测（eval_report.md）：
+# 融合序 MRR 0.925 / NDCG 0.857，全面优于纯余弦（0.911/0.843）与纯 rerank（0.890/0.809）；
+# 候选池 10 个时 k≥20 结果饱和，取文献标准值 60。闸门仍用 rerank 绝对分。
+RRF_K = int(os.getenv("RRF_K", "60"))
+
 # 相似度阈值（弱卡过滤）：低于阈值的候选不进 prompt、不展示引用卡片——
 # 宁可无引用，也不拿弱相关内容污染回答。两把尺子分开配、不混用：
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.40"))

@@ -6,6 +6,7 @@
 
 Part A 纯排序能力（不加阈值）：直接取 rerank 排序后的 Top 3，评 MRR / NDCG@3 / P@3 / Hit@3，
         与余弦原序 Top 3 对照。阈值无关，回答"reranker 排序本身行不行"。
+        Part A-3 给出生产顺序（RRF 融合 k=60）的四指标总表：余弦 / 纯 rerank / 融合三列对照。
 Part B 阈值扫描：闸门 0 / 0.01 / 0.03 / 0.05 / 0.08 / 0.1（rerank 在场，逐档离线复算），
         另加基线行 rerank-OFF（余弦 top3 + 0.40 闸，生产回退路径）。观测：
         引用覆盖率 / 无引用问题比例 / Precision / Recall / 无关引用率 / top1正确率(答案质量代理) / 平均引用数。
@@ -79,11 +80,23 @@ async def run_pipeline(query: str, store, client) -> dict:
     return {"cands": cands, "reranked": reranked, "rerank_ok": reranked is not None, "rerank_latency": dt}
 
 
+def fuse_top(pipe: dict) -> list[dict]:
+    """与 rag.py 生产逻辑一致：余弦序 + rerank 序 RRF 等权融合（k=RRF_K），返回融合序 chunk 列表"""
+    if pipe["reranked"] is None:
+        return pipe["cands"]
+    rank_cos = {c["id"]: i + 1 for i, c in enumerate(pipe["cands"])}
+    rank_rr = {c["id"]: i + 1 for i, (c, _) in enumerate(pipe["reranked"])}
+    return sorted(pipe["cands"],
+                  key=lambda c: -(1.0 / (config.RRF_K + rank_cos[c["id"]])
+                                  + 1.0 / (config.RRF_K + rank_rr[c["id"]])))
+
+
 def gate_top3(pipe: dict, t: float) -> list[dict]:
-    """离线复刻 rag.retrieve：rerank top3 按 rerank 分数 ≥t 过闸；rerank 失败回退余弦 + RAG_MIN_SCORE"""
+    """离线复刻 rag.retrieve：融合序 top3 按 rerank 分数 ≥t 过闸；rerank 失败回退余弦 + RAG_MIN_SCORE"""
     if pipe["reranked"] is not None:
-        top = pipe["reranked"][: config.RAG_TOP_K]
-        return [c for c, s in top if s >= t]
+        rs = {c["id"]: s for c, s in pipe["reranked"]}
+        top = fuse_top(pipe)[: config.RAG_TOP_K]
+        return [c for c in top if rs.get(c["id"], 0.0) >= t]
     top = pipe["cands"][: config.RAG_TOP_K]
     return [c for c in top if c["score"] >= config.RAG_MIN_SCORE]
 
@@ -228,6 +241,35 @@ async def main():
         out(f"| {name} | {len(b['cos_mrr'])} | {m('recall10'):.3f} | {m('cos_mrr'):.3f}→{m('rr_mrr'):.3f} | "
             f"{m('cos_n'):.3f}→{m('rr_n'):.3f} | {m('cos_p3'):.3f}→{m('rr_p3'):.3f} | {m('cos_h3'):.3f}→{m('rr_h3'):.3f} |")
     out()
+
+    # ---- Part A-3：生产顺序（RRF 融合）四指标总表 ----
+    out(f"### Part A-3 融合后四指标总表（生产顺序 = RRF k={config.RRF_K} 等权；{len(answerable_main)} 题）\n")
+    out("| 排序 | MRR | NDCG@3 | P@3 | Hit@3 |")
+    out("|---|---|---|---|---|")
+    rrf_mrr = rrf_n = rrf_p3 = rrf_h3 = 0.0
+    by_type_rrf: dict[str, dict] = {}
+    for qid, i in answerable_main:
+        g = grades_of(fuse_top(pipes[qid]["raw"]), i["labels"], i["chunk_labels"])
+        rrf_mrr += mrr(g); rrf_n += ndcg3(g, i["ideal"]); rrf_p3 += p3(g); rrf_h3 += hit3(g)
+        d = by_type_rrf.setdefault(i["q"]["type"], {"m": [], "n": [], "p": [], "h": []})
+        d["m"].append(mrr(g)); d["n"].append(ndcg3(g, i["ideal"])); d["p"].append(p3(g)); d["h"].append(hit3(g))
+    n = len(answerable_main)
+    out(f"| 余弦原序（粗排） | {A('cos_mrr'):.3f} | {A('cos_n'):.3f} | {A('cos_p3'):.3f} | {A('cos_h3'):.3f} |")
+    out(f"| 纯 rerank 序 | {A('rr_mrr'):.3f} | {A('rr_n'):.3f} | {A('rr_p3'):.3f} | {A('rr_h3'):.3f} |")
+    out(f"| **RRF 融合（生产）** | **{rrf_mrr/n:.3f}** | **{rrf_n/n:.3f}** | **{rrf_p3/n:.3f}** | **{rrf_h3/n:.3f}** |\n")
+    out("| 题型 | MRR 粗/精/融合 | NDCG@3 粗/精/融合 | P@3 粗/精/融合 | Hit@3 粗/精/融合 |")
+    out("|---|---|---|---|---|")
+    for t, name in TYPE_NAMES.items():
+        if t not in by_type or t not in by_type_rrf:
+            continue
+        b, r = by_type[t], by_type_rrf[t]
+        m = lambda k: sum(b[k]) / max(len(b[k]), 1)  # noqa: E731
+        rm = lambda k: sum(r[k]) / max(len(r[k]), 1)  # noqa: E731
+        out(f"| {name} | {m('cos_mrr'):.3f}/{m('rr_mrr'):.3f}/**{rm('m'):.3f}** | "
+            f"{m('cos_n'):.3f}/{m('rr_n'):.3f}/**{rm('n'):.3f}** | "
+            f"{m('cos_p3'):.3f}/{m('rr_p3'):.3f}/**{rm('p'):.3f}** | "
+            f"{m('cos_h3'):.3f}/{m('rr_h3'):.3f}/**{rm('h'):.3f}** |")
+    out()
     # 主表无标准答案的题（Hit 恒 0，单列说明）
     noans = [(qid, i) for qid, i in main_q if not i["answerable"]]
     if noans:
@@ -235,13 +277,13 @@ async def main():
             + "、".join(qid for qid, _ in noans) + "\n")
 
     # ---- 指代题排序（raw / concat 两变体，仍不加阈值） ----
-    out("## Part A-2 多轮指代题（12 题）：裸问 vs 拼上下文，rerank Top3 不加阈值\n")
+    out("## Part A-2 多轮指代题（12 题）：裸问 vs 拼上下文，融合序 Top3 不加阈值（生产顺序）\n")
     out("| 问题(上下文) | 变体 | MRR | NDCG@3 | P@3 | Hit@3 | top1等级 |")
     out("|---|---|---|---|---|---|---|")
     ana_stats = {"raw": [], "concat": []}
     for qid, i in [(k, v) for k, v in info.items() if v["q"]["type"] == "anaphora"]:
         for var in ("raw", "concat"):
-            g = grades_of(pipes[qid][var]["reranked"] or pipes[qid][var]["cands"], i["labels"], i["chunk_labels"])
+            g = grades_of(fuse_top(pipes[qid][var]), i["labels"], i["chunk_labels"])
             ana_stats[var].append((mrr(g), ndcg3(g, i["ideal"]), p3(g), hit3(g)))
             out(f"| {i['q']['query'][:12]}（{i['q']['context'][:10]}…） | {var} | {mrr(g):.2f} | {ndcg3(g, i['ideal']):.3f} | {p3(g):.2f} | {hit3(g)} | {g[0] if g else '-'} |")
     for var, cn in (("raw", "裸问"), ("concat", "拼接")):
@@ -251,8 +293,9 @@ async def main():
     out()
 
     # ================= Part B：阈值扫描 =================
-    out("## Part B 阈值扫描（rerank 在场，闸门作用于 rerank 分数；基线行=rerank OFF 余弦闸 0.40）\n")
-    out("每题检索只跑一次，六档闸门离线复算（与生产 rag.retrieve/main.py 逻辑逐行一致，含指代重试）。\n")
+    out("## Part B 阈值扫描（rerank 在场，排序=RRF 融合序（生产），闸门作用于 rerank 绝对分；基线行=rerank OFF 余弦闸 0.40）\n")
+    out("每题检索只跑一次，六档闸门离线复算（与生产 rag.retrieve/main.py 逻辑逐行一致，含指代重试）。"
+        "纯 rerank 序的对照数据见 rrf_experiment.py。\n")
     out("指标定义：")
     out("- 引用覆盖率 = 有标准答案的题中，至少 1 条 grade≥2 引用被放行的比例")
     out("- 无引用比例 = 全部 100 题中出 0 条引用的比例（OOV 零引用是正确行为，14 题全部拦下时下限 14%）")

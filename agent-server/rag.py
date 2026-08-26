@@ -115,8 +115,9 @@ async def retrieve(query: str, top_k: int | None = None) -> list[dict]:
     """问题向量化 → 向量库粗排 top-10 → （可选）cross-encoder 精排 → 取 top_k → 阈值过滤。
     任何失败都返回 []（调用方降级为无引用对话），检索绝不能拖垮聊天主链路。
 
-    两阶段：粗排先捞 max(top_k, RERANK_CANDIDATES) 个候选，精排从里面挑 top_k；
-    未配 RERANK_API_KEY 时 _rerank 直接返回 None，退化为单阶段向量 top_k——
+    两阶段：粗排先捞 max(top_k, RERANK_CANDIDATES) 个候选；精排在场时，余弦序与 rerank 序
+    做 RRF 融合（等权 1/(RRF_K+rank)）后切 top_k——纯 rerank 序在本语料上有净损伤，见
+    eval_report.md。未配 RERANK_API_KEY 时 _rerank 直接返回 None，退化为单阶段向量 top_k——
     与历史行为完全一致，所以不需要开关变量，配置即开关。
 
     阈值过滤：弱相关的候选不进 prompt、不展示卡片（宁可无引用，不拿噪声污染回答）。
@@ -135,16 +136,31 @@ async def retrieve(query: str, top_k: int | None = None) -> list[dict]:
         candidates = get_vector_store().query(qv, max(final_k, config.RERANK_CANDIDATES))
         reranked = await _rerank(query, candidates)
         if reranked is not None:
-            top = reranked[:final_k]
-            results = [c for c, s in top if s >= config.RERANK_MIN_SCORE]
-            gate = f"rerank≥{config.RERANK_MIN_SCORE}"
+            # RRF 融合：余弦序与 rerank 序各记完整排名（top-10 不在融合前过滤），
+            # score(d)=Σ 1/(RRF_K+rank)，融合后再切 top_k。纯 rerank 序在这套语料上
+            # 会把余弦已排对的候选换乱（eval_report.md Part A：NDCG 0.843→0.809 净损伤），
+            # 融合保住余弦摆位、又吃到 cross-encoder 捞回深排名相关块的红利（融合后 0.857）。
+            rank_cos = {c["id"]: i + 1 for i, c in enumerate(candidates)}
+            rank_rr = {c["id"]: i + 1 for i, (c, _) in enumerate(reranked)}
+            rr_score = {c["id"]: s for c, s in reranked}
+            fused = sorted(
+                candidates,
+                key=lambda c: -(1.0 / (config.RRF_K + rank_cos[c["id"]])
+                                + 1.0 / (config.RRF_K + rank_rr[c["id"]])),
+            )
+            top = fused[:final_k]
+            # 闸门仍用 rerank 绝对分（融合分只有序意义，无语义尺度）
+            results = [c for c in top if rr_score.get(c["id"], 0.0) >= config.RERANK_MIN_SCORE]
+            gate = f"rrf序 + rerank分≥{config.RERANK_MIN_SCORE}"
+            dropped = [round(rr_score.get(c["id"], 0.0), 3) for c in top
+                       if rr_score.get(c["id"], 0.0) < config.RERANK_MIN_SCORE]
         else:
             top = [(c, c["score"]) for c in candidates[:final_k]]
             results = [c for c, s in top if s >= config.RAG_MIN_SCORE]
             gate = f"余弦≥{config.RAG_MIN_SCORE}"
+            dropped = [round(s, 3) for _, s in top if s < config.RAG_MIN_SCORE]
         if len(results) < len(top):
-            print(f"[RAG] 阈值过滤：{len(top)} 个候选保留 {len(results)}（{gate}），"
-                  f"被滤分数：{[round(s, 3) for _, s in top if s < (config.RERANK_MIN_SCORE if reranked is not None else config.RAG_MIN_SCORE)]}")
+            print(f"[RAG] 阈值过滤：{len(top)} 个候选保留 {len(results)}（{gate}），被滤分数：{dropped}")
     except Exception as e:  # noqa: BLE001 —— 检索失败≠对话失败
         print(f"[RAG] 检索失败，本条消息降级为无引用：{e}")
         return []
