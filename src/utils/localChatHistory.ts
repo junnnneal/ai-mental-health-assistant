@@ -45,6 +45,8 @@ const bucketKey = (sessionId: number | string) =>
 
 /** 存储记录：消息体 + 桶键（seq自增主键由IndexedDB生成，天然保序） */
 interface StoredMessage extends ChatMessage {
+  // IndexedDB 的内部自增主键，不属于业务消息；读取后不能带回再次 add
+  seq?: number;
   bucket: string;
 }
 
@@ -102,7 +104,10 @@ const migrateLegacyLocalStorage = async () => {
       if (Array.isArray(list) && list.length) {
         const store = await objectStore("readwrite");
         for (const msg of list) {
-          store.add({ ...msg, bucket });
+          // 旧数据可能已经带有 seq。迁移时必须让 IndexedDB 重新生成主键，
+          // 否则重复迁移/已有记录会触发 ConstraintError。
+          const { seq: _seq, ...messageWithoutSeq } = msg as StoredMessage;
+          store.add({ ...messageWithoutSeq, bucket });
         }
         moved += list.length;
       }
@@ -136,7 +141,9 @@ export const getLocalMessages = async (
       store.index("bucket").getAll(bucketKey(sessionId)),
     )) as StoredMessage[];
     //剥掉存储字段，只留消息体；seq自增天然按写入顺序排列
-    return records.map(({ bucket: _bucket, ...msg }) => msg);
+    // seq 只是 IndexedDB 内部主键，不能暴露给业务层，否则消息再次保存时
+    // store.add() 会尝试复用旧主键并报 Key already exists。
+    return records.map(({ bucket: _bucket, seq: _seq, ...msg }) => msg);
   } catch {
     return [];
   }
@@ -156,9 +163,11 @@ export const saveLocalMessage = async (
     //经get陷阱读出仍是Proxy，而Proxy不可结构化克隆，直接add会抛DataCloneError
     //（表现为带引用的AI回复全部落库失败）。JSON往返剥成纯对象再入库；
     //消息体全是JSON安全字段（createdAt为ISO字符串），往返无损。
-    const plainMsg = JSON.parse(JSON.stringify(msg)) as ChatMessage;
+    const plainMsg = JSON.parse(JSON.stringify(msg)) as StoredMessage;
+    // 无论消息来自页面新建、历史回显还是迁移，都只允许 IndexedDB 生成 seq。
+    const { seq: _seq, ...messageWithoutSeq } = plainMsg;
     const store = await objectStore("readwrite");
-    await reqAsPromise(store.add({ ...plainMsg, bucket }));
+    await reqAsPromise(store.add({ ...messageWithoutSeq, bucket }));
     //桶内超限裁剪：删最早的（seq最小）记录
     const keys = (await reqAsPromise(
       store.index("bucket").getAllKeys(bucket),
