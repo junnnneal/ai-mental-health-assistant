@@ -60,7 +60,9 @@ def hit3(grades: list[int]) -> int:
 
 
 def mrr(grades: list[int]) -> float:
-    return next((1 / (i + 1) for i, g in enumerate(grades) if g >= REL), 0.0)
+    """MRR@3：只在前 3 个里找第一个相关块——产品只展示 top3 引用，rank4+ 用户看不到，
+    与 Hit@3/P@3/NDCG@3 统一在同一个窗口（传入完整排序时自动截前 3）"""
+    return next((1 / (i + 1) for i, g in enumerate(grades[:3]) if g >= REL), 0.0)
 
 
 def ndcg3(grades: list[int], ideal: list[int]) -> float:
