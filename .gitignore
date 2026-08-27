@@ -53,3 +53,9 @@ agent-server/chroma_data/
 agent-server/eval_pipes_cache.json
 agent-server/eval_pool.json
 agent-server/eval_pool_new32.json
+
+# 面试笔记（本地私有，不入库）
+AI心理健康情绪陪伴助手项目梳理.md
+AI心理健康项目RAG升级代码对照.md
+AI心理健康项目三大亮点.md
+RAG零基础面试讲解.md
