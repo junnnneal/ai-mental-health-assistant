@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.errors import GraphRecursionError
 
+import bm25
 import config
 import knowledge_base
 import rag
@@ -36,6 +37,9 @@ async def _warmup_kb():
     """启动预热：失败只打日志不炸启动，首次检索时会自动重试"""
     try:
         await knowledge_base.ensure_built()
+        # BM25 词法索引顺带预热（本地分词+统计约 1s，放线程池不占事件循环），
+        # 首条消息就不必现场建索引
+        await asyncio.to_thread(bm25.get_index)
     except Exception as e:  # noqa: BLE001
         print(f"[启动] 知识库预热失败（将在首次检索时重试）：{e}")
 

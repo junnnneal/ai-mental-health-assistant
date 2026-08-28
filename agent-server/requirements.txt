@@ -10,3 +10,6 @@ python-dotenv==1.2.3
 # 旧版依赖 chroma-hnswlib 源码编译必失败）。装不上时删除本行重部署，
 # vector_store.py 的 ImportError 分支会自动降级 json 后端
 chromadb>=1.1,<2
+# 中文分词（BM25 词法检索路）：纯 Python 无编译依赖。删掉此行重部署，
+# bm25.py 的 ImportError 分支会自动降级 CJK 二元组分词（Render 内存紧张时的退路）
+jieba==0.42.1

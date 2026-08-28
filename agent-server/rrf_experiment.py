@@ -2,6 +2,10 @@
 RRF 融合离线实验：用 eval_pipes_cache.json（100 题管线缓存）扫 k 值与权重，
 对照 纯余弦序 / 纯 rerank 序 的 Part A 排序指标 + Part B 闸门行为。
 
+【归档说明】本脚本停留在两路 RRF 时代（候选池=余弦 top-10，只读缓存的 cands/reranked 键，
+v3 缓存仍带这两个键所以还能跑）。BM25 第三路上线后的同池多配置对比见 eval_rerank.py
+的 Part A-3（六配置）与 Part B-1（同闸对比）。
+
 用法：cd agent-server && python -X utf8 rrf_experiment.py   （秒级，不打 API）
 RRF(d) = w_cos/(k+rank_cos) + w_rr/(k+rank_rr)，候选池=粗排 top-10（两路都给满 10 个排名）
 """

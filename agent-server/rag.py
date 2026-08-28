@@ -8,6 +8,7 @@ src/views/frontend/Consultation.vue 逐字迁移的（迁移前后的模型输�
 """
 import httpx
 
+import bm25
 import config
 from vector_store import get_vector_store
 
@@ -112,18 +113,26 @@ async def _rerank(query: str, candidates: list[dict]) -> list[tuple[dict, float]
 
 
 async def retrieve(query: str, top_k: int | None = None) -> list[dict]:
-    """问题向量化 → 向量库粗排 top-10 → （可选）cross-encoder 精排 → 取 top_k → 阈值过滤。
+    """问题向量化 → 向量粗排 top-10 ∪ BM25 词法 top-N 并集 → （可选）cross-encoder 精排
+    → 余弦序+rerank序 两路 RRF 融合 → 取 top_k → 阈值过滤。
     任何失败都返回 []（调用方降级为无引用对话），检索绝不能拖垮聊天主链路。
 
-    两阶段：粗排先捞 max(top_k, RERANK_CANDIDATES) 个候选；精排在场时，余弦序与 rerank 序
-    做 RRF 融合（等权 1/(RRF_K+rank)）后切 top_k——纯 rerank 序在本语料上有净损伤，见
-    eval_report.md。未配 RERANK_API_KEY 时 _rerank 直接返回 None，退化为单阶段向量 top_k——
-    与历史行为完全一致，所以不需要开关变量，配置即开关。
+    混合检索（BM25 只扩池、不投票）：稠密语义捞不准的精确词面（术语/专有名词）由稀疏
+    词法补——精排只能重排已召回的候选，两路各捞、去重并集送精排。100 题同池对照
+    （eval_report.md Part A-3）：并集池让 R@10 0.915→0.940、两路融合 NDCG 0.857→0.863；
+    但给 BM25 第三票等权 RRF 会把摆位投乱（NDCG →0.820）、教科书"rerank 独裁定序"
+    更差（→0.777）——所以词法路的贡献被限制在候选池扩展，排序权仍归余弦+精排。
+    BM25 失败/关闭时并集退化为纯余弦 top-10，行为与历史完全一致（降级链第六层）。
+
+    融合：余弦序与 rerank 序两路排名等权 RRF（1/(RRF_K+rank)）。纯 rerank 序在本语料上
+    有净损伤，rerank 只当一票不当独裁者；BM25 独有候选凭精排的高排名单独过闸上位。
 
     阈值过滤：弱相关的候选不进 prompt、不展示卡片（宁可无引用，不拿噪声污染回答）。
     精排在场用 rerank 尺（RERANK_MIN_SCORE），关闭时用余弦尺（RAG_MIN_SCORE）——
-    两把尺子分布不同，分开校准，谁在场用谁。
-    返回项：{index(1起), id, articleId, articleTitle, heading, text, score}（score 恒为余弦分）"""
+    两把尺子分布不同，分开校准，谁在场用谁。未配 RERANK_API_KEY 时 _rerank 返回 None，
+    退化为纯余弦 top_k + 余弦闸（与历史行为一致，配置即开关）。
+    返回项：{index(1起), id, articleId, articleTitle, heading, text, score}（score 恒为余弦分；
+    BM25 独有候选的余弦分取自加宽的余弦窗口，窗口外按 0=弱命中处理）"""
     query = (query or "").strip()
     if not query:
         return []
@@ -133,25 +142,41 @@ async def retrieve(query: str, top_k: int | None = None) -> list[dict]:
             qv = (await embed_texts([query], client))[0]
         if not qv:
             return []
-        candidates = get_vector_store().query(qv, max(final_k, config.RERANK_CANDIDATES))
-        reranked = await _rerank(query, candidates)
+        # 余弦窗口比粗排宽一个 BM25_TOP_N：并集里 BM25 独有的候选也能拿到真实余弦分，
+        # 引用卡片"分数恒为余弦"的语义不破（余弦排名 >20 的才按 0 处理）
+        window = get_vector_store().query(
+            qv, max(final_k, config.RERANK_CANDIDATES) + config.BM25_TOP_N)
+        candidates = window[: max(final_k, config.RERANK_CANDIDATES)]
+        cos_score = {c["id"]: c["score"] for c in window}
+        bm25_hits = bm25.search(query, config.BM25_TOP_N)
+        pool = [dict(c) for c in candidates]
+        pool_ids = {c["id"] for c in pool}
+        for c, _ in bm25_hits:
+            if c["id"] not in pool_ids:
+                pool.append({**c, "score": cos_score.get(c["id"], 0.0)})
+        reranked = await _rerank(query, pool)
         if reranked is not None:
-            # RRF 融合：余弦序与 rerank 序各记完整排名（top-10 不在融合前过滤），
-            # score(d)=Σ 1/(RRF_K+rank)，融合后再切 top_k。纯 rerank 序在这套语料上
-            # 会把余弦已排对的候选换乱（eval_report.md Part A：NDCG 0.843→0.809 净损伤），
-            # 融合保住余弦摆位、又吃到 cross-encoder 捞回深排名相关块的红利（融合后 0.857）。
+            # 两路 RRF：各路记完整排名（不在融合前过滤），缺席不贡献、不补零排名。
+            # rank_cos 只认余弦 top-10（加宽窗口里 11-20 名是取分数用的，不算检索命中）；
+            # BM25 不投票——它捞回的候选要上位，得靠精排给它在 rank_rr 里排到前面
             rank_cos = {c["id"]: i + 1 for i, c in enumerate(candidates)}
             rank_rr = {c["id"]: i + 1 for i, (c, _) in enumerate(reranked)}
             rr_score = {c["id"]: s for c, s in reranked}
-            fused = sorted(
-                candidates,
-                key=lambda c: -(1.0 / (config.RRF_K + rank_cos[c["id"]])
-                                + 1.0 / (config.RRF_K + rank_rr[c["id"]])),
-            )
+
+            def fused_score(c: dict) -> float:
+                s = 0.0
+                for rank in (rank_cos, rank_rr):
+                    r = rank.get(c["id"])
+                    if r is not None:
+                        s += 1.0 / (config.RRF_K + r)
+                return s
+
+            fused = sorted(pool, key=lambda c: -fused_score(c))
             top = fused[:final_k]
-            # 闸门仍用 rerank 绝对分（融合分只有序意义，无语义尺度）
+            # 闸门仍用 rerank 绝对分（融合分只有序意义，无语义尺度；
+            # BM25 绝对分对无关题也有 6~13 分，完全没有闸门区分度）
             results = [c for c in top if rr_score.get(c["id"], 0.0) >= config.RERANK_MIN_SCORE]
-            gate = f"rrf序 + rerank分≥{config.RERANK_MIN_SCORE}"
+            gate = f"{'混合并集池' if len(pool) > len(candidates) else '余弦池'}两路RRF序 + rerank分≥{config.RERANK_MIN_SCORE}"
             dropped = [round(rr_score.get(c["id"], 0.0), 3) for c in top
                        if rr_score.get(c["id"], 0.0) < config.RERANK_MIN_SCORE]
         else:
