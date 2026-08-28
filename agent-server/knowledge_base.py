@@ -102,6 +102,12 @@ async def _ingest(store) -> int:
     async with httpx.AsyncClient(timeout=60) as client:
         vectors = await embed_texts([c["embed_text"] for c in chunks], client)
     valid = [(c, v) for c, v in zip(chunks, vectors) if v]
+    if len(valid) < len(chunks):
+        # 缺块绝不入库、绝不记指纹：部分库+匹配指纹 = 永不自愈的静默缺块
+        # （线上事故根因：embedding 掉条被过滤后照常 set_fingerprint，655 块只剩 610）。
+        # 抛错让指纹保持失配，下一次 ensure_built / 重启自动整库重试——全有或全无。
+        raise RuntimeError(
+            f"向量化不完整：{len(valid)}/{len(chunks)} 块，放弃本次入库（不记指纹，下次自动重试）")
     store.upsert(
         ids=[c["id"] for c, _ in valid],
         vectors=[v for _, v in valid],
@@ -145,9 +151,16 @@ async def _do_build() -> int:
 
 
 async def rebuild() -> int:
-    """强制重建（管理端点 /kb/rebuild 用）：无视指纹直接清库重灌"""
-    async with _build_lock:
-        return await _ingest(get_vector_store())
+    """强制重建（管理端点 /kb/rebuild 用）：无视指纹直接清库重灌。
+    挂到 _build_task 上让 /health 的 building 位对手动重建也可见
+    （否则重建失败/进行中都显示 building:false，线上排障被误导过）。"""
+    global _build_task
+    _build_task = asyncio.current_task()
+    try:
+        async with _build_lock:
+            return await _ingest(get_vector_store())
+    finally:
+        _build_task = None
 
 
 def is_building() -> bool:

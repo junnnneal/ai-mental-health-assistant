@@ -6,6 +6,8 @@ RAG 核心：文本向量化（embedding）+ 检索 + 咨询页 prompt 组装。
 src/views/frontend/Consultation.vue 逐字迁移的（迁移前后的模型输入保持一致，
 这是浏览器端→服务端迁移的行为基准，改动会让线上回答风格漂移）。
 """
+import asyncio
+
 import httpx
 
 import bm25
@@ -38,22 +40,30 @@ def build_rag_context(citations: list[dict]) -> str:
 
 async def embed_texts(texts: list[str], client: httpx.AsyncClient) -> list[list[float]]:
     """批量向量化：直调智谱 embedding 接口（EMBED_BATCH_SIZE 条/批，按 index 还原顺序）。
-    原 tools.py 的 _embed_texts 原样迁移，knowledge_base 入库与本文件检索共用。"""
+    原 tools.py 的 _embed_texts 原样迁移，knowledge_base 入库与本文件检索共用。
+    批级重试 ×3：智谱偶发掉条/限流会让某批回来缺项，缺项=知识库静默缺块
+    （线上出过 610/655 部分库事故），所以缺条必须重试而不是放过。"""
     vectors: list[list[float]] = []
     for i in range(0, len(texts), config.EMBED_BATCH_SIZE):
         batch = texts[i: i + config.EMBED_BATCH_SIZE]
-        r = await client.post(
-            config.EMBED_URL,
-            headers={"Authorization": f"Bearer {config.GLM_API_KEY}"},
-            json={"model": config.EMBED_MODEL, "input": batch},
-        )
-        try:
-            data = r.json().get("data") or []
-        except Exception:
-            data = []
         ordered: list = [None] * len(batch)
-        for item in data:
-            ordered[item["index"]] = item["embedding"]
+        for attempt in range(3):
+            r = await client.post(
+                config.EMBED_URL,
+                headers={"Authorization": f"Bearer {config.GLM_API_KEY}"},
+                json={"model": config.EMBED_MODEL, "input": batch},
+            )
+            try:
+                data = r.json().get("data") or []
+            except Exception:
+                data = []
+            ordered = [None] * len(batch)
+            for item in data:
+                if isinstance(item.get("index"), int) and 0 <= item["index"] < len(batch):
+                    ordered[item["index"]] = item.get("embedding")
+            if all(v is not None for v in ordered):
+                break
+            await asyncio.sleep(0.6 * (attempt + 1))
         vectors.extend(ordered)
     return vectors
 
