@@ -113,24 +113,24 @@ async def _rerank(query: str, candidates: list[dict]) -> list[tuple[dict, float]
 
 
 async def retrieve(query: str, top_k: int | None = None) -> list[dict]:
-    """问题向量化 → 向量粗排 top-10 ∪ BM25 词法 top-N 并集 → （可选）cross-encoder 精排
-    → 余弦序+rerank序 两路 RRF 融合 → 取 top_k → 阈值过滤。
-    任何失败都返回 []（调用方降级为无引用对话），检索绝不能拖垮聊天主链路。
+    """问题向量化 → 混合召回（余弦 top-N ∪ BM25 top-N）→ RRF(cos序,BM25序) 合并取前
+    RERANK_CANDIDATES → （可选）cross-encoder 精排 → RRF(池内余弦序,rerank序) 融合定序
+    → 取 top_k → 阈值过滤。任何失败都返回 []（调用方降级为无引用对话），
+    检索绝不能拖垮聊天主链路。
 
-    混合检索（BM25 只扩池、不投票）：稠密语义捞不准的精确词面（术语/专有名词）由稀疏
-    词法补——精排只能重排已召回的候选，两路各捞、去重并集送精排。100 题同池对照
-    （eval_report.md Part A-3）：并集池让 R@10 0.915→0.940、两路融合 NDCG 0.857→0.863；
-    但给 BM25 第三票等权 RRF 会把摆位投乱（NDCG →0.820）、教科书"rerank 独裁定序"
-    更差（→0.777）——所以词法路的贡献被限制在候选池扩展，排序权仍归余弦+精排。
-    BM25 失败/关闭时并集退化为纯余弦 top-10，行为与历史完全一致（降级链第六层）。
+    两段式 RRF（100 题标注集三轮对照定案，eval_weighted_report.md / eval_width_report.md）：
+      合并处：两路召回排名等权 1/(RRF_K+rank)——纯排名融合，不配权重不归一化
+        （加权扫描 w_bm∈{0,0.25,0.5,1,2,∞}：曲面台阶状，≥2 退化纯词法 NDCG 0.714、
+        ≤0.5 退化纯余弦 0.812，1:1 是唯一吃到两路互补的点）；
+      召回宽、精排池小：15+15 召回 R@0.976，合并只留 10 送精排（比并集池 10~16 个省），
+        keep15 对 top-3 无增益反而 top1 0.894→0.882；
+      定序处：rerank 不当独裁者（独裁 NDCG 0.791/0.807，任何宽度都是最差行），
+        与池内余弦序再做一次等权 RRF——两个强但不完美的排序器互相兜底。
 
-    融合：余弦序与 rerank 序两路排名等权 RRF（1/(RRF_K+rank)）。纯 rerank 序在本语料上
-    有净损伤，rerank 只当一票不当独裁者；BM25 独有候选凭精排的高排名单独过闸上位。
-
-    阈值过滤：弱相关的候选不进 prompt、不展示卡片（宁可无引用，不拿噪声污染回答）。
-    精排在场用 rerank 尺（RERANK_MIN_SCORE），关闭时用余弦尺（RAG_MIN_SCORE）——
-    两把尺子分布不同，分开校准，谁在场用谁。未配 RERANK_API_KEY 时 _rerank 返回 None，
-    退化为纯余弦 top_k + 余弦闸（与历史行为一致，配置即开关）。
+    降级链：BM25 关闭/失败 → 合并退化为余弦序；rerank 不可用 → 直接用合并 RRF 序
+    + 余弦闸（"rerank 不可靠时用 RRF 结果"）；未配 RERANK_API_KEY 时全程无精排。
+    阈值过滤：精排在场用 rerank 尺（RERANK_MIN_SCORE），否则余弦尺（RAG_MIN_SCORE），
+    两把尺子分开校准，谁在场用谁。
     返回项：{index(1起), id, articleId, articleTitle, heading, text, score}（score 恒为余弦分；
     BM25 独有候选的余弦分取自加宽的余弦窗口，窗口外按 0=弱命中处理）"""
     query = (query or "").strip()
@@ -142,33 +142,48 @@ async def retrieve(query: str, top_k: int | None = None) -> list[dict]:
             qv = (await embed_texts([query], client))[0]
         if not qv:
             return []
-        # 余弦窗口比粗排宽一个 BM25_TOP_N：并集里 BM25 独有的候选也能拿到真实余弦分，
-        # 引用卡片"分数恒为余弦"的语义不破（余弦排名 >20 的才按 0 处理）
-        window = get_vector_store().query(
-            qv, max(final_k, config.RERANK_CANDIDATES) + config.BM25_TOP_N)
-        candidates = window[: max(final_k, config.RERANK_CANDIDATES)]
+        # 两路召回各取 top-召回宽度；余弦窗口再加宽一个 BM25 深度，
+        # 让 BM25 独有的候选也拿到真实余弦分（引用卡片"分数恒为余弦"的语义不破）
+        bm_n = config.BM25_TOP_N
+        window = get_vector_store().query(qv, config.RAG_RECALL_N + bm_n)
+        candidates = window[: config.RAG_RECALL_N]
         cos_score = {c["id"]: c["score"] for c in window}
-        bm25_hits = bm25.search(query, config.BM25_TOP_N)
+        bm25_hits = bm25.search(query, bm_n) if bm_n > 0 else []
         pool = [dict(c) for c in candidates]
         pool_ids = {c["id"] for c in pool}
         for c, _ in bm25_hits:
             if c["id"] not in pool_ids:
                 pool.append({**c, "score": cos_score.get(c["id"], 0.0)})
+
+        # 合并处 RRF：两路召回排名等权融合，取前 RERANK_CANDIDATES 送精排
+        # （缺席的路不贡献、不补零排名；BM25 关闭时即余弦原序）
+        rank_cos0 = {c["id"]: i + 1 for i, c in enumerate(candidates)}
+        rank_bm = {c["id"]: i + 1 for i, (c, _) in enumerate(bm25_hits)}
+
+        def merge_score(c: dict) -> float:
+            s = 0.0
+            r = rank_cos0.get(c["id"])
+            if r is not None:
+                s += 1.0 / (config.RRF_K + r)
+            r = rank_bm.get(c["id"])
+            if r is not None:
+                s += 1.0 / (config.RRF_K + r)
+            return s
+
+        pool = sorted(pool, key=lambda c: -merge_score(c))[: config.RERANK_CANDIDATES]
+
         reranked = await _rerank(query, pool)
         if reranked is not None:
-            # 两路 RRF：各路记完整排名（不在融合前过滤），缺席不贡献、不补零排名。
-            # rank_cos 只认余弦 top-10（加宽窗口里 11-20 名是取分数用的，不算检索命中）；
-            # BM25 不投票——它捞回的候选要上位，得靠精排给它在 rank_rr 里排到前面
-            rank_cos = {c["id"]: i + 1 for i, c in enumerate(candidates)}
+            # 定序处 RRF：池内余弦序 + rerank 序等权融合（缺席不贡献、不补零排名）
+            rank_cos = {c["id"]: i + 1 for i, c in enumerate(sorted(pool, key=lambda c: -c["score"]))}
             rank_rr = {c["id"]: i + 1 for i, (c, _) in enumerate(reranked)}
             rr_score = {c["id"]: s for c, s in reranked}
 
             def fused_score(c: dict) -> float:
-                s = 0.0
-                for rank in (rank_cos, rank_rr):
-                    r = rank.get(c["id"])
-                    if r is not None:
-                        s += 1.0 / (config.RRF_K + r)
+                s = 1.0 / (config.RRF_K + rank_cos[c["id"]])
+                r = rank_rr.get(c["id"])
+                if r is not None:
+                    s += 1.0 / (config.RRF_K + r)
                 return s
 
             fused = sorted(pool, key=lambda c: -fused_score(c))
@@ -176,14 +191,15 @@ async def retrieve(query: str, top_k: int | None = None) -> list[dict]:
             # 闸门仍用 rerank 绝对分（融合分只有序意义，无语义尺度；
             # BM25 绝对分对无关题也有 6~13 分，完全没有闸门区分度）
             results = [c for c in top if rr_score.get(c["id"], 0.0) >= config.RERANK_MIN_SCORE]
-            gate = f"{'混合并集池' if len(pool) > len(candidates) else '余弦池'}两路RRF序 + rerank分≥{config.RERANK_MIN_SCORE}"
+            gate = f"两段RRF(合并+定序) + rerank分≥{config.RERANK_MIN_SCORE}"
             dropped = [round(rr_score.get(c["id"], 0.0), 3) for c in top
                        if rr_score.get(c["id"], 0.0) < config.RERANK_MIN_SCORE]
         else:
-            top = [(c, c["score"]) for c in candidates[:final_k]]
-            results = [c for c, s in top if s >= config.RAG_MIN_SCORE]
-            gate = f"余弦≥{config.RAG_MIN_SCORE}"
-            dropped = [round(s, 3) for _, s in top if s < config.RAG_MIN_SCORE]
+            # 精排不可用：直接用合并 RRF 序 + 余弦闸（rerank 不可靠时用 RRF 结果）
+            top = pool[:final_k]
+            results = [c for c in top if c["score"] >= config.RAG_MIN_SCORE]
+            gate = f"合并RRF序 + 余弦≥{config.RAG_MIN_SCORE}"
+            dropped = [round(c["score"], 3) for c in top if c["score"] < config.RAG_MIN_SCORE]
         if len(results) < len(top):
             print(f"[RAG] 阈值过滤：{len(top)} 个候选保留 {len(results)}（{gate}），被滤分数：{dropped}")
     except Exception as e:  # noqa: BLE001 —— 检索失败≠对话失败

@@ -77,8 +77,10 @@ def ndcg3(grades: list[int], ideal: list[int]) -> float:
 # ---------------- 检索（每题只跑一次，闸门全部离线复算） ----------------
 
 async def run_pipeline(query: str, store, client) -> dict:
-    """与 rag.retrieve 生产逻辑逐行一致：余弦窗口(10+BM25_N) → 余弦top10 ∪ BM25top10 并集 →
-    并集整体送精排（闸门要 rerank 分）。BM25 是本地计算，缓存里只存结果不存索引。"""
+    """v3 时代的生产管线快照（余弦top10 ∪ BM25top10 并集 → 并集整体送精排）。
+    现行生产已演进为两段式（RRF 合并 keep10 → 精排 → RRF 定序，RAG_RECALL_N=15），
+    与现行逻辑的对照见 eval_width.py；本文件保留作 v3 协议与历史数字的冻结基线。
+    BM25 是本地计算，缓存里只存结果不存索引。"""
     qv = (await rag.embed_texts([query], client))[0]
     window = store.query(qv, config.RERANK_CANDIDATES + config.BM25_TOP_N)
     cands = window[: config.RERANK_CANDIDATES]

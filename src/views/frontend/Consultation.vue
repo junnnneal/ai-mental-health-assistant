@@ -25,7 +25,12 @@ import {
   removeLocalHistory,
   saveLocalMessage,
 } from "@/utils/localChatHistory";
-import type { ChatMessage, EmotionGarden, SessionHistoryItem } from "@/types";
+import type {
+  ChatMessage,
+  EmotionGarden,
+  MessageVerify,
+  SessionHistoryItem,
+} from "@/types";
 
 const iconUrl1 = new URL("@/assets/images/robot-fill.png", import.meta.url)
   .href;
@@ -381,6 +386,33 @@ const stopTypewriter = () => {
   }
 };
 
+//AI自检徽章的展开状态：已展开明细的消息id集合（Set也要reactive包装才能驱动视图）
+const expandedVerifyIds = reactive(new Set<string>());
+const toggleVerifyDetail = (id: number | string) => {
+  const key = String(id);
+  if (expandedVerifyIds.has(key)) {
+    expandedVerifyIds.delete(key);
+  } else {
+    expandedVerifyIds.add(key);
+  }
+};
+
+//自检徽章文案与明细：pass一行全绿；warn/fail可展开看具体声明（只列非supported项）
+const verifyIcon = (verdict: string) =>
+  verdict === "fail" ? "✗" : verdict === "warn" ? "⚠" : "✓";
+const verifyLabel = (v: MessageVerify) => {
+  if (v.verdict === "fail") {
+    return `AI 自检：${v.unsupported.length} 条声明与资料不符`;
+  }
+  if (v.verdict === "warn") {
+    return `AI 自检：${v.beyond} 条为资料外建议`;
+  }
+  return `AI 自检：${v.supported} 条声明均有依据`;
+};
+const verifyDetailClaims = (v: MessageVerify) =>
+  (v.claims ?? []).filter((c) => c.status !== "supported");
+const hasVerifyDetail = (v: MessageVerify) => verifyDetailClaims(v).length > 0;
+
 //System Prompt 与知识库上下文组装已迁到服务端 rag.py（RAG_CHAT_SYSTEM_PROMPT /
 //build_rag_context，措辞逐字保留），前端只负责展示，需要对照措辞去服务端看
 
@@ -507,6 +539,10 @@ const startAiResponse = async (sessionId: number | string) => {
             articleTitle: c.articleTitle,
             heading: c.heading,
           }));
+        },
+        onVerify: (v) => {
+          //自检结果挂到AI消息上（与citations同款：完成后展示、随消息一起本地持久化）
+          aiMessage.verify = v;
         },
         onDelta: (delta) => {
           //首个delta到达 = 模型首字：只记一次，打印分段耗时拆解
@@ -959,6 +995,55 @@ onUnmounted(() => {
                   <span class="citation-text">
                     {{ c.articleTitle }} · {{ c.heading }}
                   </span>
+                </div>
+              </div>
+              <!-- AI自检徽章：回答完成后的幻觉自检结果（后端自检失败不发verify帧，此处不渲染） -->
+              <div
+                v-if="msg.verify && msg.content && !msg.isError"
+                class="ai-verify"
+                :class="`verify-${msg.verify.verdict}`"
+              >
+                <button
+                  type="button"
+                  class="verify-summary"
+                  :class="{ expandable: hasVerifyDetail(msg.verify) }"
+                  @click="hasVerifyDetail(msg.verify) && toggleVerifyDetail(msg.id)"
+                >
+                  <span class="verify-icon">{{
+                    verifyIcon(msg.verify.verdict)
+                  }}</span>
+                  <span class="verify-label">{{
+                    verifyLabel(msg.verify)
+                  }}</span>
+                  <span
+                    v-if="hasVerifyDetail(msg.verify)"
+                    class="verify-arrow"
+                    >{{
+                      expandedVerifyIds.has(String(msg.id)) ? "▴" : "▾"
+                    }}</span
+                  >
+                </button>
+                <div
+                  v-if="expandedVerifyIds.has(String(msg.id))"
+                  class="verify-details"
+                >
+                  <div
+                    v-for="(c, i) in verifyDetailClaims(msg.verify)"
+                    :key="i"
+                    class="verify-claim"
+                    :class="`claim-${c.status}`"
+                  >
+                    <span class="claim-mark">{{
+                      c.status === "unsupported" ? "✗" : "⚠"
+                    }}</span>
+                    <span class="claim-text">{{ c.text }}</span>
+                  </div>
+                  <div
+                    v-if="msg.verify.alignment != null"
+                    class="verify-alignment"
+                  >
+                    与来源相似度 {{ msg.verify.alignment.toFixed(2) }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1663,6 +1748,76 @@ onUnmounted(() => {
                 }
               }
             }
+            /* AI自检徽章（生成后幻觉自检）：三档配色 pass绿 / warn黄 / fail红 */
+            .ai-verify {
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px dashed rgba(251, 146, 60, 0.35);
+              .verify-summary {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                width: 100%;
+                padding: 4px 8px;
+                border: none;
+                border-radius: 8px;
+                background: rgba(34, 197, 94, 0.08);
+                font-family: inherit;
+                font-size: 12px;
+                color: #15803d;
+                cursor: default;
+                text-align: left;
+                &.expandable {
+                  cursor: pointer;
+                }
+                .verify-icon {
+                  font-weight: 700;
+                  flex-shrink: 0;
+                }
+                .verify-arrow {
+                  margin-left: auto;
+                  opacity: 0.7;
+                }
+              }
+              &.verify-warn .verify-summary {
+                background: #fef9ec;
+                color: #a16207;
+              }
+              &.verify-fail .verify-summary {
+                background: #fdf0ef;
+                color: #b91c1c;
+              }
+              .verify-details {
+                margin-top: 6px;
+                .verify-claim {
+                  display: flex;
+                  align-items: baseline;
+                  gap: 6px;
+                  padding: 4px 8px;
+                  margin-bottom: 4px;
+                  border-radius: 8px;
+                  font-size: 12px;
+                  line-height: 1.4;
+                  &.claim-unsupported {
+                    background: #fdf0ef;
+                    color: #991b1b;
+                  }
+                  &.claim-beyond {
+                    background: #fef9ec;
+                    color: #92400e;
+                  }
+                  .claim-mark {
+                    font-weight: 700;
+                    flex-shrink: 0;
+                  }
+                }
+                .verify-alignment {
+                  font-size: 11px;
+                  color: #b08968;
+                  text-align: left;
+                }
+              }
+            }
           }
           .message-time {
             font-size: 12px;
@@ -1915,6 +2070,7 @@ onUnmounted(() => {
 .consultation-container .chat-messages .citations { border-top-color: rgba(178,70,98,.2); }
 .consultation-container .chat-messages .citation-card { background: #f9edf1; }
 .consultation-container .chat-messages .citations-title { color: var(--sage); }
+.consultation-container .chat-messages .ai-verify { border-top-color: rgba(178,70,98,.2); }
 .consultation-container .chat-messages .citation-text { color: #68525c; }
 
 .consultation-container .chat-main .chat-input {

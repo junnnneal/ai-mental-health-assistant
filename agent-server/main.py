@@ -27,6 +27,7 @@ import bm25
 import config
 import knowledge_base
 import rag
+import verify
 from graph import agent
 from llm import analyze_llm, rag_llm
 from tools import user_token
@@ -196,10 +197,19 @@ async def rag_chat(request: Request):
             )
             msgs = [SystemMessage(content=system_content), *_history_messages(history, message)]
 
+            answer_parts: list[str] = []
             async for chunk in rag_llm.astream(msgs):
                 delta = _content_text(chunk.content)
                 if delta:
+                    answer_parts.append(delta)
                     yield _sse({"type": "token", "text": delta})
+            # 生成后幻觉自检：必须在 done 之前发（前端收到 done 即断流）；
+            # 仅在有引用且回答成形时做，任何失败静默跳过、照常 done
+            answer = "".join(answer_parts).strip()
+            if citations and config.RAG_VERIFY and len(answer) >= 30:
+                v = await verify.verify_answer(citations, answer)
+                if v:
+                    yield _sse({"type": "verify", **v})
             yield _sse({"type": "done"})
         except Exception as e:  # noqa: BLE001 —— SSE 里任何异常都要吐给前端而不是断流
             yield _sse({"type": "error", "message": f"RAG 对话出错：{e}"})

@@ -55,24 +55,44 @@ RERANK_URL = os.getenv("RERANK_URL", "https://api.siliconflow.cn/v1/rerank")
 RERANK_MODEL = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 RERANK_API_KEY = os.getenv("RERANK_API_KEY", "")
 RERANK_TIMEOUT = float(os.getenv("RERANK_TIMEOUT", "2"))  # 超时即放弃，回退向量原序（降级链第五层）
-RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "10"))  # 粗排候选数
+RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "10"))  # RRF 合并保留数 = 送精排候选数
 
-# RRF 融合常数：精排在场时，余弦序与 rerank 序各记完整排名（top-10 不在融合前过滤），
-# 按 1/(k+排名) 等权融合后再切 top_k。100 题标注集实测（eval_report.md）：
-# 融合序 MRR 0.925 / NDCG 0.857，全面优于纯余弦（0.911/0.843）与纯 rerank（0.890/0.809）；
-# 候选池 10 个时 k≥20 结果饱和，取文献标准值 60。闸门仍用 rerank 绝对分。
+# RRF 融合常数：两段式各用一次（合并处融合 cos/BM25 召回排名，定序处融合池内
+# 余弦序/rerank 序），等权 1/(k+排名)——纯排名融合，不配权重不归一化。
+# 加权扫描（eval_weighted_report.md）：权重曲面台阶状，BM25 票权 ≥2 退化纯词法
+# （NDCG 0.714）、≤0.5 退化纯余弦（0.812），1:1 等权是唯一吃到两路互补的点。
+# k≥20 结果饱和，取文献标准值 60。闸门恒用 rerank 绝对分。
 RRF_K = int(os.getenv("RRF_K", "60"))
 
-# ---------------- 混合检索：BM25 词法路（只扩池、不投票） ----------------
-# 稀疏词法检索补稠密向量的短板：专有名词/术语/精确字面可能整体进不了余弦
-# top-10——精排只能重排已召回的候选，捞不回没进池子的块（评测里 R@10=0 的粗排
-# 缺口就是这类）。BM25 与余弦各捞 top-N、去重并集送 cross-encoder 精排。
-# 100 题同池对照（eval_report.md Part A-3）：并集池 R@10 0.915→0.940、两路 RRF
-# NDCG 0.857→0.863；给 BM25 第三票等权 RRF 反而 0.820、教科书 rerank 独裁 0.777
-# ——词法路的贡献限制在候选池扩展，排序权留给余弦+精排，闸门恒用 rerank 分
-# （BM25 绝对分对无关题也有 6~13 分，无区分度）。
-# 设 0 = 关闭词法路（线上只动环境变量、不改代码的回滚开关）。
-BM25_TOP_N = int(os.getenv("BM25_TOP_N", "10"))
+# ---------------- 混合检索：两段式 RRF（合并处融合召回，定序处融合排序） ----------------
+# 稀疏词法补稠密向量的短板：专有名词/术语/精确字面可能整体进不了余弦 top-N——
+# 精排只能重排已召回的候选，捞不回没进池子的块。两路各捞 top-N、RRF(cos,BM25)
+# 等权合并取前 RERANK_CANDIDATES 送精排，精排后再与池内余弦序 RRF 融合定序。
+# 100 题三轮对照定案（eval_report / eval_weighted_report / eval_width_report）：
+#   召回宽精排池小：15+15 召回 R@0.976（10+10 是 0.940），合并 keep10 送精排；
+#     keep15 对 top-3 无增益反而 top1 0.894→0.882；
+#   定序不独裁：rerank 序即最终序（教科书做法）任何宽度都是最差行
+#     （NDCG 0.791~0.807 / top1 0.824），RRF(cos,rr) 定序 0.859/0.894；
+#   BM25 不进定序投票：任何 γ>0 第三票都不如不给（最优 γ=0.25 才 0.848 < 0.863），
+#     闸门恒用 rerank 分（BM25 绝对分对无关题也有 6~13 分，无区分度）。
+# RAG_RECALL_N：两路召回深度（余弦路与 BM25 路同宽，宽度实验 10→15 的来源）。
+RAG_RECALL_N = int(os.getenv("RAG_RECALL_N", "15"))
+# BM25_TOP_N：词法路深度。设 0 = 关闭词法路，合并退化为余弦原序
+# （线上只动环境变量、不改代码的回滚开关）。
+BM25_TOP_N = int(os.getenv("BM25_TOP_N", "15"))
+
+# ---------------- 生成后幻觉自检（verify 事件） ----------------
+# 回答流结束后、done 前，用一次低温 LLM 调用把回答拆成事实性声明逐条对照引用资料
+# （§9 策略②输出自校验），并发算检索-生成对齐分（策略⑤：answer 与各引用块的最大
+# 余弦，辅助信号只进 payload 与日志、不参与判定）。宽松三档：编造具体事实才 fail，
+# 资料外的一般性心理建议只计 warn——陪伴场景回答几乎必带共情建议，从严会徽章常年
+# 黄着没人信。仅在"有 citations 且回答≥30字"时触发；任何失败（超时/解析/异常）
+# 静默跳过——不发 verify 事件、照常 done，绝不拖垮对话主链路（降级链第七层）。
+# 设 0 = 关闭（线上只动环境变量的回滚开关，行为回到没有自检的版本）。
+RAG_VERIFY = os.getenv("RAG_VERIFY", "1") == "1"
+# 实测 glm-4-flash 非流式 ainvoke 生成核验 JSON 约 3~6s，长回答偶发 >8s（超时曾
+# 让 verify 帧整体丢失），封顶 15s——只在有引用的回答末尾多等这一段，首字不受影响
+RAG_VERIFY_TIMEOUT = float(os.getenv("RAG_VERIFY_TIMEOUT", "15"))
 
 # 相似度阈值（弱卡过滤）：低于阈值的候选不进 prompt、不展示引用卡片——
 # 宁可无引用，也不拿弱相关内容污染回答。两把尺子分开配、不混用：

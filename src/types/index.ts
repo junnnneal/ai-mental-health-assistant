@@ -92,6 +92,26 @@ export interface MessageCitation {
   heading: string
 }
 
+/** 自检声明的三档标注（supported有依据 / beyond资料外建议 / unsupported与资料不符） */
+export interface MessageVerifyClaim {
+  text: string
+  status: 'supported' | 'beyond' | 'unsupported'
+}
+
+/** RAG回答生成后幻觉自检结果（服务端verify事件下发） */
+export interface MessageVerify {
+  //pass全有依据 / warn有资料外建议 / fail有与资料不符的声明（服务端从claims重算）
+  verdict: 'pass' | 'warn' | 'fail'
+  supported: number
+  beyond: number
+  //与资料不符的声明文本列表（重点列出问题项）
+  unsupported: string[]
+  //逐条声明明细（展开徽章时只展示非supported项）
+  claims: MessageVerifyClaim[]
+  //回答与引用块的最大余弦相似度（辅助信号，自检或对齐失败时缺失）
+  alignment?: number | null
+}
+
 /** AI 咨询消息 */
 export interface ChatMessage {
   id: number | string
@@ -108,6 +128,8 @@ export interface ChatMessage {
   isError?: boolean
   //RAG检索命中的参考来源（随消息一起本地持久化）
   citations?: MessageCitation[]
+  //生成后幻觉自检结果（随消息一起本地持久化）
+  verify?: MessageVerify
 }
 
 /** 情绪花园展示数据 */

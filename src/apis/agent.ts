@@ -12,6 +12,23 @@ export interface AgentCitation {
   score?: number;
 }
 
+/**
+ * 生成后幻觉自检结果（verify 事件，token 流结束后、done 前到达）。
+ * 服务端自检失败（超时/解析失败/无引用/回答过短）时整帧省略——
+ * 收不到就是"本轮没有自检"，前端不渲染徽章即天然向后兼容。
+ */
+export interface AgentVerify {
+  //pass 全有依据 / warn 有资料外建议 / fail 有与资料不符的声明（服务端重算）
+  verdict: "pass" | "warn" | "fail";
+  supported: number;
+  beyond: number;
+  //与资料不符的声明文本列表（重点列出问题项）
+  unsupported: string[];
+  claims: { text: string; status: "supported" | "beyond" | "unsupported" }[];
+  //回答与引用块的最大余弦相似度（辅助信号，可能缺失）
+  alignment?: number | null;
+}
+
 export interface AgentChatPayload {
   message: string;
   history: { role: "user" | "assistant"; content: string }[];
@@ -28,6 +45,8 @@ export const ragChatStream = async (
     onCitations: (citations: AgentCitation[]) => void;
     onDelta: (text: string) => void;
     onDone: () => void;
+    /** verify 帧可选：服务端自检成功才会到，不传也不影响原有调用方 */
+    onVerify?: (verify: AgentVerify) => void;
   },
   signal?: AbortSignal,
 ) => {
@@ -109,6 +128,9 @@ export const ragChatStream = async (
         callbacks.onCitations((data.citations as AgentCitation[]) ?? []);
       } else if (data.type === "token") {
         callbacks.onDelta(String(data.text ?? ""));
+      } else if (data.type === "verify") {
+        //幻觉自检结果：必须在 done 分支之前处理（done 直接 return 断流）
+        callbacks.onVerify?.(data as unknown as AgentVerify);
       } else if (data.type === "done") {
         callbacks.onDone();
         return;

@@ -32,5 +32,7 @@ def make_llm(temperature: Optional[float] = None, streaming: bool = False) -> Ch
 rag_llm = make_llm()
 # /analyze 情绪分析：低温采样，要稳定的结构化 JSON，不要发散
 analyze_llm = make_llm(temperature=0.2)
+# 生成后幻觉自检（verify.py）：同 analyze 的低温惯例，逐条核对应输出稳定 JSON
+verify_llm = make_llm(temperature=0.2)
 # 健康管家 ReAct：对流式事件敏感，必须开 streaming
 agent_llm = make_llm(temperature=0.7, streaming=True)
