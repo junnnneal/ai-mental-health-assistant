@@ -295,7 +295,9 @@ async def kb_rebuild(request: Request):
     return {"started": True}
 
 
-@app.get("/health")
+# HEAD 必须放行：UptimeRobot 等监控/保活 bot 多用 HEAD 探测，
+# @app.get 只认 GET 会回 405——bot 侧表现为永远 down（线上真实踩过）
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     return {
         "status": "ok",

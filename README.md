@@ -88,7 +88,7 @@ Netlify（前端静态站 + 边缘函数代理）
 桶模型（`userId_sessionKey` 索引 + seq 自增保序）、localStorage 存量幂等迁移、单桶 200 条容量裁剪、无痕模式降级内存模式；定位并修复 **reactive Proxy 不可结构化克隆**导致的静默落库失败（DataCloneError）。
 
 ### 6. 部署工程化
-- Render 免费层：ephemeral 磁盘重启丢库 → 语料 sha256 指纹校验自动重建（655 块约 10s）；15 分钟休眠 → UptimeRobot + GitHub Actions 定时 ping `/health` 双保活
+- Render 免费层：ephemeral 磁盘重启丢库 → 语料 sha256 指纹校验自动重建（655 块约 10s，embedding 掉条批级重试 + 全有或全无入库，缺块绝不静默上架）；15 分钟休眠 → GitHub Actions（每 5 分钟）+ Netlify 定时函数（每 15 分钟错峰）双平台保活——单平台 cron 延迟不再造成休眠，UptimeRobot 免费档不可靠已弃用
 - Netlify 边缘函数代理跨域与密钥注入，前端开发/生产同一 `/agent` 路径
 
 ## 📦 本地运行

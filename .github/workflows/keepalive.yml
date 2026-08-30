@@ -2,12 +2,16 @@ name: Keep Render awake
 
 # Render 免费版 15 分钟无流量就休眠，下次请求冷启动 50s+，会撞穿 Netlify
 # 函数 60s 上限（线上表现为咨询页 502/504）。此 workflow 定时 ping /health
-# 做保活兜底——UptimeRobot 正常时二者重叠无害，UptimeRobot 挂掉时它顶上。
-# 私有仓库免费额度 2000 分钟/月：单次约 15s × 每 13 分钟 ≈ 1000 分钟，够用。
+# 做主保活：每 5 分钟一拍（仓库 public，Actions 分钟数不限），只 ping 不判活
+# （任何失败都不发邮件——告警交给监控 bot，保活与告警职责分离）。
+# 异平台兜底：netlify/functions/keepalive.mjs 每 15 分钟（分钟 7/22/37/52）错峰
+# 再 ping 一次——Actions cron 高峰会排队延迟十几分钟（每 13 分钟一拍的时代真睡过），
+# Netlify 调度器与之故障不相关。UptimeRobot 免费档自身会漏 ping，已弃用。
+# 额度账：免费层 750 实例小时/月，24/7 保活 = 744h，够（ping 频率不计量，只计醒着的时长）。
 on:
   schedule:
-    # 避开整点/整刻（Actions 高峰排队），13 分钟 < 15 分钟休眠线，留有余量
-    - cron: "*/13 * * * *"
+    # 避开整点（Actions 高峰排队更容易延迟）；5 分钟 < 15 分钟休眠线，余量充足
+    - cron: "*/5 * * * *"
   workflow_dispatch: # 支持手动触发（Actions 页 Run workflow）
 
 jobs:
@@ -15,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping agent-server health
+        # 只 ping 不判活：任何结果（超时/网络错/非 200）都算步骤成功，永不触发
+        # Actions 失败邮件——宕机告警交给监控 bot（/health 已放行 HEAD 探测）
         run: |
-          code=$(curl -sS -m 90 -o /dev/null -w "%{http_code}" https://ai-mental-agent.onrender.com/health)
-          echo "health status: $code"
-          # 非 200 视为失败，Actions 邮件会提醒（等于免费的宕机告警）
-          test "$code" = "200"
+          code=$(curl -sS -m 90 -o /dev/null -w "%{http_code}" https://ai-mental-agent.onrender.com/health || true)
+          echo "health status: ${code:-000}"
